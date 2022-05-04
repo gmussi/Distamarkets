@@ -19,21 +19,22 @@ describe("Distamarkets contract", () => {
     describe("Markets", () => {
         it ("Should create markets", async () => {
             // create first market
-            await distamarkets.connect(addr1).createMarket("Will this first market work?", [ethers.utils.formatBytes32String ('no'), ethers.utils.formatBytes32String('yes')]);
+            await distamarkets.connect(addr1).createMarket("Will this first market work?", "ipfs://test/test1.png", [ethers.utils.formatBytes32String ('no'), ethers.utils.formatBytes32String('yes')]);
             
             let marketId = await distamarkets.getMarketIndex();
             expect(marketId).to.equal(1);
 
             // create second market
-            await distamarkets.connect(addr1).createMarket("Will this second market work?", [ethers.utils.formatBytes32String ('no'), ethers.utils.formatBytes32String('yes')]);
+            await distamarkets.connect(addr1).createMarket("Will this second market work?", "ipfs://test/test2.png", [ethers.utils.formatBytes32String ('no'), ethers.utils.formatBytes32String('yes')]);
             
             let newMarketId = await distamarkets.getMarketIndex();
             expect(newMarketId).to.equal(2);
 
             // check everything was saved correctly
-            [title, outcomes, state]  = await distamarkets.getMarket(0);
+            [title, image, outcomes, state]  = await distamarkets.getMarket(0);
 
             expect(title).to.equal("Will this first market work?");
+            expect(image).to.equal("ipfs://test/test1.png");
             expect(outcomes[0]).to.equal(ethers.utils.formatBytes32String ('no'));
             expect(outcomes[1]).to.equal(ethers.utils.formatBytes32String ('yes'));
         });
@@ -42,7 +43,7 @@ describe("Distamarkets contract", () => {
     describe("Betting", () => {
         it ("Should allow adding stake", async () => {
             // create market
-            await distamarkets.connect(addr1).createMarket("Will this first market work?", [ethers.utils.formatBytes32String ('no'), ethers.utils.formatBytes32String('yes')]);
+            await distamarkets.connect(addr1).createMarket("Will this first market work?", "ipfs://test/test1.png", [ethers.utils.formatBytes32String ('no'), ethers.utils.formatBytes32String('yes')]);
         
             // add stake with both users
             await distamarkets.connect(addr1).addStake(0, 0, {
@@ -70,7 +71,7 @@ describe("Distamarkets contract", () => {
 
         it ("Should allow removing stake", async () => {
             // create market
-            await distamarkets.connect(addr1).createMarket("Will this first market work?", [ethers.utils.formatBytes32String ('no'), ethers.utils.formatBytes32String('yes')]);
+            await distamarkets.connect(addr1).createMarket("Will this first market work?", "ipfs://test/test1.png", [ethers.utils.formatBytes32String ('no'), ethers.utils.formatBytes32String('yes')]);
             
             // add stake
             await distamarkets.connect(addr1).addStake(0, 0, {
@@ -92,9 +93,7 @@ describe("Distamarkets contract", () => {
             console.log(initialBalance, finalBalance, finalBalance.sub(initialBalance));
 
             expect(finalBalance.sub(initialBalance)).to.be.at.least(ethers.utils.parseEther("9"));
-            
-            
-             ;
+
         });
     });
 });

@@ -14,6 +14,7 @@ contract Distamarkets is Ownable {
     struct Market {
         // market details
         string title;
+        string image;
         uint numOutcomes;
         uint256 totalStake;
         MarketState state;
@@ -34,12 +35,13 @@ contract Distamarkets is Ownable {
     mapping(uint256 => Market) markets;
     uint256 public marketIndex;
 
-    function createMarket(string calldata _title, bytes32[] memory _outcomeNames) external payable returns(uint256) {
+    function createMarket(string calldata _title, string calldata _image, bytes32[] memory _outcomeNames) external payable returns(uint256) {
         uint256 marketId = marketIndex;
         marketIds.push(marketId);
 
         Market storage market = markets[marketId];
         market.title = _title;
+        market.image = _image;
         market.numOutcomes = _outcomeNames.length;
         market.creator = msg.sender;
         market.state = MarketState.OPEN;
@@ -92,7 +94,7 @@ contract Distamarkets is Ownable {
         return outcome.holders[msg.sender];
     }
 
-    function getMarket(uint256 _marketId) public view returns (string memory, bytes32[] memory, MarketState, uint256) {
+    function getMarket(uint256 _marketId) public view returns (string memory, string memory, bytes32[] memory, MarketState, uint256) {
         Market storage market = markets[_marketId];
         
         bytes32[] memory outcomeNames = new bytes32[](market.numOutcomes);
@@ -100,7 +102,8 @@ contract Distamarkets is Ownable {
         for (uint i = 0; i < market.numOutcomes; i++) {
             outcomeNames[i] = (market.outcomes[i].outcomeName);
         }
-        return (market.title, outcomeNames, market.state, market.totalStake);
+        
+        return (market.title, market.image, outcomeNames, market.state, market.totalStake);
     }
 
     function getMarketIndex() public view returns (uint256) {
