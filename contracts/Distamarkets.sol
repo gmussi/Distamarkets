@@ -98,7 +98,7 @@ contract Distamarkets is Ownable {
         return stake.amount;
     }
 
-    function removeStake(uint256 _stakeId, uint256 _marketId, uint256 _amount) external payable openMarket(_marketId) returns (uint256) {
+    function removeStake(uint256 _stakeId, uint256 _amount) external payable openMarket(userStakes[_stakeId - 1].marketId) returns (uint256) {
         require(_amount > 0, "Cannot remove 0 stake");
 
         UserStake storage stake = userStakes[_stakeId - 1];
@@ -114,7 +114,7 @@ contract Distamarkets is Ownable {
 
         payable(msg.sender).transfer(_amount);
 
-        emit StakeChanged(_stakeId, msg.value, _marketId, msg.sender);
+        emit StakeChanged(_stakeId, msg.value, stake.marketId, msg.sender);
 
         return stake.amount;
     }
