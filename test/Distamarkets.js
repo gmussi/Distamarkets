@@ -37,12 +37,12 @@ describe("Distamarkets contract", () => {
             expect(newMarketId).to.equal(2);
 
             // check everything was saved correctly
-            [title, image, outcomes, state]  = await distamarkets.getMarket(1);
+            [title, image, state, stake, outcomeNames, outcomeStakes]  = await distamarkets.getMarket(1);
 
             expect(title).to.equal("Will this first market work?");
             expect(image).to.equal("ipfs://test/test1.png");
-            expect(outcomes[0]).to.equal(ethers.utils.formatBytes32String ('no'));
-            expect(outcomes[1]).to.equal(ethers.utils.formatBytes32String ('yes'));
+            expect(outcomeNames[0]).to.equal(ethers.utils.formatBytes32String ('no'));
+            expect(outcomeNames[1]).to.equal(ethers.utils.formatBytes32String ('yes'));
         });
     });
 

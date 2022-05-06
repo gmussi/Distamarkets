@@ -119,16 +119,18 @@ contract Distamarkets is Ownable {
         return stake.amount;
     }
 
-    function getMarket(uint256 _marketId) public view returns (string memory, string memory, bytes32[] memory, MarketState, uint256) {
+    function getMarket(uint256 _marketId) public view returns (string memory, string memory, MarketState, uint256, bytes32[] memory, uint256[] memory) {
         Market storage market = markets[_marketId - 1];
         
         bytes32[] memory outcomeNames = new bytes32[](market.numOutcomes);
+        uint256[] memory outcomeStakes = new uint256[](market.numOutcomes);
 
         for (uint i = 0; i < market.numOutcomes; i++) {
             outcomeNames[i] = (market.outcomes[i].outcomeName);
+            outcomeStakes[i] = (market.outcomes[i].totalStake);
         }
 
-        return (market.title, market.image, outcomeNames, market.state, market.totalStake);
+        return (market.title, market.image, market.state, market.totalStake, outcomeNames, outcomeStakes);
     }
 
     function getMarketIndex() public view returns (uint256) {
