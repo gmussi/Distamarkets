@@ -10,8 +10,9 @@ async function main() {
     const distamarkets = await Distamarkets.deploy();
     console.log(`Distamarkets deployed at ${distamarkets.address}`);
 
-    console.log("Waiting 2 block confirmations...")
-    await distamarkets.deployTransaction.wait(6);
+    let blocksToWait = 5;
+    console.log(`Waiting ${blocksToWait} block confirmations...`)
+    await distamarkets.deployTransaction.wait(blocksToWait);
 
     console.log("Verifying contract on etherscan.")
     await hre.run("verify:verify", {
