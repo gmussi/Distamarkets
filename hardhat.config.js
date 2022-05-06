@@ -91,11 +91,13 @@ module.exports = {
 
   etherscan: {
     apiKey: {
+      mainnet: ETHERSCAN_API_KEY,
       ropsten: ETHERSCAN_API_KEY,
       kovan: ETHERSCAN_API_KEY,
       goerli: ETHERSCAN_API_KEY,
-      ropsten: ETHERSCAN_API_KEY,
       rinkeby: RINKEBY_API_KEY,
+
+      polygon: POLYGONSCAN_API_KEY,
       polygonMumbai: POLYGONSCAN_API_KEY
     }
   }
