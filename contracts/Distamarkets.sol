@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MIT
-pragma solidity >=0.8.6;
+pragma solidity ^0.8.7;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-contract Distamarkets is Ownable {
+contract Distamarkets {
+    using SafeERC20 for IERC20;
+
     event MarketCreated(address indexed creator, uint256 indexed marketId, string name);
     event StakeChanged(uint256 indexed stakeId, uint256 amount, uint256 indexed marketId, address indexed user);
     event MarketStateChanged(uint256 indexed marketId, MarketState);
@@ -36,9 +38,14 @@ contract Distamarkets is Ownable {
         address user;
     }
 
+    IERC20 internal immutable token;
     Market[] markets;
     UserStake[] userStakes;
     mapping(address => uint256[]) stakesByUser; // User => UserStake Ids
+
+    constructor(IERC20 _token) {
+        token = _token;
+    }
 
     function createMarket(string calldata _title, string calldata _image, bytes32[] memory _outcomeNames) external returns(uint256) {
         markets.push();
@@ -151,6 +158,10 @@ contract Distamarkets is Ownable {
 
     function getStake(uint256 stakeId) public view returns(UserStake memory) {
         return userStakes[stakeId - 1];
+    }
+
+    function getToken() public view returns (IERC20) {
+        return token;
     }
 
     modifier openMarket(uint256 _marketId) {
