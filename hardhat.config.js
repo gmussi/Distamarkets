@@ -95,7 +95,7 @@ module.exports = {
       ropsten: ETHERSCAN_API_KEY,
       kovan: ETHERSCAN_API_KEY,
       goerli: ETHERSCAN_API_KEY,
-      rinkeby: RINKEBY_API_KEY,
+      rinkeby: ETHERSCAN_API_KEY,
 
       polygon: POLYGONSCAN_API_KEY,
       polygonMumbai: POLYGONSCAN_API_KEY
