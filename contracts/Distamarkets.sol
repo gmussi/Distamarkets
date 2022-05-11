@@ -39,6 +39,8 @@ contract Distamarkets {
     }
 
     IERC20 internal immutable _token;
+    uint256 internal _tokenBalance;
+
     Market[] _markets;
     UserStake[] _userStakes;
     mapping(address => uint256[]) _stakesByUser; // User => UserStake Ids
@@ -69,14 +71,18 @@ contract Distamarkets {
         return marketId;
     }
 
-    function addStake(uint256 marketId_, uint256 outcomeId_) external payable openMarket(marketId_) returns (uint256) {
-        require(msg.value > 0, "Cannot add 0 stake");
+    function addStake(uint256 marketId_, uint256 outcomeId_, uint256 amount_) external openMarket(marketId_) returns (uint256) {
+        require(amount_ > 0, "Cannot add 0 stake");
+
+        // TODO investigate if the gas cost of next 2 lines are worth the good error message
+        uint256 allowedToken = _token.allowance(msg.sender, address(this));
+        require(amount_ <= allowedToken, "Approve amount is not high enough");
 
         Market storage market = _markets[marketId_ - 1];
         MarketOutcome storage outcome = market.outcomes[outcomeId_];
 
-        market.totalStake = market.totalStake + msg.value;
-        outcome.totalStake = outcome.totalStake + msg.value;
+        market.totalStake = market.totalStake + amount_;
+        outcome.totalStake = outcome.totalStake + amount_;
 
         // user already has stake?
         uint256 stakeId = outcome.holders[msg.sender];
@@ -98,15 +104,25 @@ contract Distamarkets {
         }
         
         // update stake amount
-        stake.amount = stake.amount + msg.value;
+        stake.amount = stake.amount + amount_;
 
-        emit StakeChanged(stakeId, msg.value, marketId_, msg.sender);
+        _token.safeTransferFrom(
+            msg.sender,
+            address(this),
+            amount_
+        );
+        updateBalance();
+
+        emit StakeChanged(stakeId, amount_, marketId_, msg.sender);
         
         return stake.amount;
     }
 
-    function removeStake(uint256 stakeId_, uint256 amount_) external payable openMarket(_userStakes[stakeId_ - 1].marketId) returns (uint256) {
+    function removeStake(uint256 stakeId_, uint256 amount_) external openMarket(_userStakes[stakeId_ - 1].marketId) returns (uint256) {
         require(amount_ > 0, "Cannot remove 0 stake");
+
+        // TODO There should be no way to reach this error condition:
+        // require(amount_ <= _tokenBalance, "Contract does not have enough tokens");
 
         UserStake storage stake = _userStakes[stakeId_ - 1];
 
@@ -119,9 +135,14 @@ contract Distamarkets {
         outcome.totalStake = outcome.totalStake - amount_;
         stake.amount = stake.amount - amount_;
 
-        payable(msg.sender).transfer(amount_);
+        _token.safeTransfer(
+            msg.sender,
+            amount_
+        );
 
-        emit StakeChanged(stakeId_, msg.value, stake.marketId, msg.sender);
+        updateBalance();
+
+        emit StakeChanged(stakeId_, amount_, stake.marketId, msg.sender);
 
         return stake.amount;
     }
@@ -138,6 +159,11 @@ contract Distamarkets {
         }
 
         return (market.title, market.image, market.state, market.totalStake, outcomeNames, outcomeStakes);
+    }
+
+    function updateBalance() public {
+        // Retrieve amount of tokens held in contract
+        _tokenBalance = _token.balanceOf(address(this));
     }
 
     function getMarketIndex() public view returns (uint256) {
@@ -162,6 +188,10 @@ contract Distamarkets {
 
     function token() public view returns (IERC20) {
         return _token;
+    }
+
+    function tokenBalance() public view returns (uint256) {
+        return _tokenBalance;
     }
 
     modifier openMarket(uint256 marketId_) {

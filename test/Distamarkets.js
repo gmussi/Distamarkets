@@ -1,8 +1,4 @@
 const { expect } = require("chai");
-const { BN } = require('@openzeppelin/test-helpers');
-
-const Q18 = (new BN('10')).pow(new BN('18'));
-const WFAIR_TOTAL_SUPPLY = Q18.mul((new BN('10')).pow(new BN('9')));
 
 let Distamarkets, distamarkets, owner, addr1, addr2, Token, token;
 
@@ -22,6 +18,10 @@ describe("Distamarkets contract", () => {
         Distamarkets = await ethers.getContractFactory("Distamarkets");
         distamarkets = await Distamarkets.deploy(token.address);
         [owner, addr1, addr2, _] = await ethers.getSigners(); 
+
+        // distribute 1k tokens for each user
+        await token.connect(owner).transfer(addr1.address, ethers.utils.parseEther("1000"));
+        await token.connect(owner).transfer(addr2.address, ethers.utils.parseEther("1000"));
     });
 
     describe("Deployment", () => {
@@ -56,17 +56,27 @@ describe("Distamarkets contract", () => {
     });
 
     describe("Betting", () => {
-        it ("Should allow adding stake", async () => {
+        it ("Should fail without approval", async() => {
             // create market
             await createMarket();
+
+            // add stake without approving first
+            await expect(
+                distamarkets.connect(addr1).addStake(1, 0, ethers.utils.parseEther("50"))
+            ).to.be.revertedWith('Approve amount is not high enough');
+        });
+
+        it ("Should allow adding multiple stakes", async () => {
+            // create market
+            await createMarket();
+
+            // approve token transfers
+            await token.connect(addr1).approve(distamarkets.address, ethers.utils.parseEther("50"));
+            await token.connect(addr2).approve(distamarkets.address, ethers.utils.parseEther("25"));
         
             // add stake with both users
-            await distamarkets.connect(addr1).addStake(1, 0, {
-                value: ethers.utils.parseEther("50")
-            });
-            await distamarkets.connect(addr2).addStake(1, 1, {
-                value: ethers.utils.parseEther("25")
-            });
+            await distamarkets.connect(addr1).addStake(1, 0, ethers.utils.parseEther("50"));
+            await distamarkets.connect(addr2).addStake(1, 1, ethers.utils.parseEther("25"));
 
             // checks stakes are counted correctly
             let addr1StakeId = await distamarkets.getStakeId(addr1.address, 1, 0);
@@ -88,18 +98,20 @@ describe("Distamarkets contract", () => {
             
         });
 
+        
         it ("Should allow removing stake", async () => {
             // create market
             await createMarket();
+
+            // approve transfer
+            await token.connect(addr1).approve(distamarkets.address, ethers.utils.parseEther("50"));
             
             // add stake
-            await distamarkets.connect(addr1).addStake(1, 0, {
-                value: ethers.utils.parseEther("50")
-            });
+            await distamarkets.connect(addr1).addStake(1, 0, ethers.utils.parseEther("50"));
             let addr1StakeId = await distamarkets.getStakeId(addr1.address, 1, 0);
 
             // track user current balance
-            let initialBalance = await addr1.getBalance();
+            let initialBalance = await token.balanceOf(addr1.address);
 
             // remove part of stake
             await distamarkets.connect(addr1).removeStake(addr1StakeId, ethers.utils.parseEther("10"));
@@ -109,46 +121,49 @@ describe("Distamarkets contract", () => {
             expect(addr1Stake.amount).to.equal(ethers.utils.parseEther("40"));
             
             // ensure user received funds
-            let finalBalance = await addr1.getBalance();
-            console.log(initialBalance, finalBalance, finalBalance.sub(initialBalance));
+            let finalBalance = await token.balanceOf(addr1.address);
 
             expect(finalBalance.sub(initialBalance)).to.be.at.least(ethers.utils.parseEther("9"));
 
         });
 
+        
         it ("Should not allow adding 0 stake", async () => {
             await createMarket();
 
-            // cannot add 0 stake
-            await expect(distamarkets.connect(addr1).addStake(1, 1, {
-                value: 0
-            })).to.be.revertedWith('Cannot add 0 stake');
-        });
+            // approve transfer
+            await token.connect(addr1).approve(distamarkets.address, ethers.utils.parseEther("1"));
 
+            // cannot add 0 stake
+            await expect(distamarkets.connect(addr1).addStake(1, 1, ethers.utils.parseEther("0")))
+                .to.be.revertedWith('Cannot add 0 stake');
+        });
+        
         it ("Should allow increasing existing stake", async () => {
             await createMarket();
 
+            // approve transfer
+            await token.connect(addr1).approve(distamarkets.address, ethers.utils.parseEther("75"));
+
             // add 50 stake
-            await distamarkets.connect(addr1).addStake(1, 0, {
-                value: ethers.utils.parseEther("50")
-            });
+            await distamarkets.connect(addr1).addStake(1, 0, ethers.utils.parseEther("50"));
             // add 25 stake
-            await distamarkets.connect(addr1).addStake(1, 0, {
-                value: ethers.utils.parseEther("25")
-            });
+            await distamarkets.connect(addr1).addStake(1, 0, ethers.utils.parseEther("25"));
+
             // stake should be 75
             let addr1StakeId = await distamarkets.getStakeId(addr1.address, 1, 0);
             let addr1Stake = await distamarkets.getStake(addr1StakeId);
             expect(addr1Stake.amount).to.equal(ethers.utils.parseEther("75"));
         });
-
+        
         it ("Should prevent removing 0 stake", async () => {
             await createMarket();
 
+            // approve transfer
+            await token.connect(addr1).approve(distamarkets.address, ethers.utils.parseEther("50"));
+
             // add 50 stake
-            await distamarkets.connect(addr1).addStake(1, 0, {
-                value: ethers.utils.parseEther("50")
-            });
+            await distamarkets.connect(addr1).addStake(1, 0, ethers.utils.parseEther("50"));
 
             // retrieve stake id
             let addr1StakeId = await distamarkets.getStakeId(addr1.address, 1, 0);
@@ -160,16 +175,18 @@ describe("Distamarkets contract", () => {
         it ("Should not remove more stake than previously added", async() => {
             await createMarket();
 
+            // approve transfer
+            await token.connect(addr1).approve(distamarkets.address, ethers.utils.parseEther("50"));
+
             // add 50 stake
-            await distamarkets.connect(addr1).addStake(1, 0, {
-                value: ethers.utils.parseEther("50")
-            });
+            await distamarkets.connect(addr1).addStake(1, 0, ethers.utils.parseEther("50"));
 
             // retrieve stake id
             let addr1StakeId = await distamarkets.getStakeId(addr1.address, 1, 0);
 
             // cannot remove 51 stake
-            await expect(distamarkets.connect(addr1).removeStake(addr1StakeId, ethers.utils.parseEther("51"))).to.be.revertedWith('Amount exceeds current stake');
+            await expect(distamarkets.connect(addr1).removeStake(addr1StakeId, ethers.utils.parseEther("51")))
+                .to.be.revertedWith('Amount exceeds current stake');
         });
 
         it ("Should correctly retrieve stakes", async () => {
@@ -177,13 +194,12 @@ describe("Distamarkets contract", () => {
             await createMarket();
             await createMarket();
 
+            // approve transfer
+            await token.connect(addr1).approve(distamarkets.address, ethers.utils.parseEther("75"));
+
             // add stake to both markets
-            await distamarkets.connect(addr1).addStake(1, 0, {
-                value: ethers.utils.parseEther("50")
-            });
-            await distamarkets.connect(addr1).addStake(2, 1, {
-                value: ethers.utils.parseEther("25")
-            });
+            await distamarkets.connect(addr1).addStake(1, 0, ethers.utils.parseEther("50"));
+            await distamarkets.connect(addr1).addStake(2, 1, ethers.utils.parseEther("25"));
 
             // ensure stakes are correct
             let userStakes = await distamarkets.getUserStakes(addr1.address);
