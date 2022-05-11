@@ -56,27 +56,13 @@ describe("Distamarkets contract", () => {
     });
 
     describe("Betting", () => {
-        it ("Should fail without approval", async() => {
-            // create market
-            await createMarket();
-
-            // add stake without approving first
-            await expect(
-                distamarkets.connect(addr1).addStake(1, 0, ethers.utils.parseEther("50"))
-            ).to.be.revertedWith('Approve amount is not high enough');
-        });
-
         it ("Should allow adding multiple stakes", async () => {
             // create market
             await createMarket();
 
-            // approve token transfers
-            await token.connect(addr1).approve(distamarkets.address, ethers.utils.parseEther("50"));
-            await token.connect(addr2).approve(distamarkets.address, ethers.utils.parseEther("25"));
-        
             // add stake with both users
-            await distamarkets.connect(addr1).addStake(1, 0, ethers.utils.parseEther("50"));
-            await distamarkets.connect(addr2).addStake(1, 1, ethers.utils.parseEther("25"));
+            await token.connect(addr1)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("50"), ethers.utils.defaultAbiCoder.encode(["uint256", "uint256"], [1, 0]));
+            await token.connect(addr2)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("25"), ethers.utils.defaultAbiCoder.encode(["uint256", "uint256"], [1, 1]));
 
             // checks stakes are counted correctly
             let addr1StakeId = await distamarkets.getStakeId(addr1.address, 1, 0);
@@ -94,20 +80,15 @@ describe("Distamarkets contract", () => {
             // ensure stake is counted correctly
             let totalStake = await distamarkets.getMarketTotalStake(1);
             expect(totalStake).to.equal(ethers.utils.parseEther("75"));
-
-            
         });
 
-        
+             
         it ("Should allow removing stake", async () => {
             // create market
             await createMarket();
 
-            // approve transfer
-            await token.connect(addr1).approve(distamarkets.address, ethers.utils.parseEther("50"));
-            
-            // add stake
-            await distamarkets.connect(addr1).addStake(1, 0, ethers.utils.parseEther("50"));
+            // stake and get stakeid
+            await token.connect(addr1)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("50"), ethers.utils.defaultAbiCoder.encode(["uint256", "uint256"], [1, 0]));
             let addr1StakeId = await distamarkets.getStakeId(addr1.address, 1, 0);
 
             // track user current balance
@@ -115,7 +96,7 @@ describe("Distamarkets contract", () => {
 
             // remove part of stake
             await distamarkets.connect(addr1).removeStake(addr1StakeId, ethers.utils.parseEther("10"));
-            
+
             // ensure stake is tracked correctly
             let addr1Stake = await distamarkets.getStake(addr1StakeId);
             expect(addr1Stake.amount).to.equal(ethers.utils.parseEther("40"));
@@ -131,24 +112,18 @@ describe("Distamarkets contract", () => {
         it ("Should not allow adding 0 stake", async () => {
             await createMarket();
 
-            // approve transfer
-            await token.connect(addr1).approve(distamarkets.address, ethers.utils.parseEther("1"));
+            let tokenCall = token.connect(addr1)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("0"), ethers.utils.defaultAbiCoder.encode(["uint256", "uint256"], [1, 0]));
 
             // cannot add 0 stake
-            await expect(distamarkets.connect(addr1).addStake(1, 1, ethers.utils.parseEther("0")))
+            await expect(tokenCall)
                 .to.be.revertedWith('Cannot add 0 stake');
         });
         
         it ("Should allow increasing existing stake", async () => {
             await createMarket();
 
-            // approve transfer
-            await token.connect(addr1).approve(distamarkets.address, ethers.utils.parseEther("75"));
-
-            // add 50 stake
-            await distamarkets.connect(addr1).addStake(1, 0, ethers.utils.parseEther("50"));
-            // add 25 stake
-            await distamarkets.connect(addr1).addStake(1, 0, ethers.utils.parseEther("25"));
+            await token.connect(addr1)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("50"), ethers.utils.defaultAbiCoder.encode(["uint256", "uint256"], [1, 0]));
+            await token.connect(addr1)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("25"), ethers.utils.defaultAbiCoder.encode(["uint256", "uint256"], [1, 0]));
 
             // stake should be 75
             let addr1StakeId = await distamarkets.getStakeId(addr1.address, 1, 0);
@@ -159,11 +134,7 @@ describe("Distamarkets contract", () => {
         it ("Should prevent removing 0 stake", async () => {
             await createMarket();
 
-            // approve transfer
-            await token.connect(addr1).approve(distamarkets.address, ethers.utils.parseEther("50"));
-
-            // add 50 stake
-            await distamarkets.connect(addr1).addStake(1, 0, ethers.utils.parseEther("50"));
+            await token.connect(addr1)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("50"), ethers.utils.defaultAbiCoder.encode(["uint256", "uint256"], [1, 0]));
 
             // retrieve stake id
             let addr1StakeId = await distamarkets.getStakeId(addr1.address, 1, 0);
@@ -175,11 +146,7 @@ describe("Distamarkets contract", () => {
         it ("Should not remove more stake than previously added", async() => {
             await createMarket();
 
-            // approve transfer
-            await token.connect(addr1).approve(distamarkets.address, ethers.utils.parseEther("50"));
-
-            // add 50 stake
-            await distamarkets.connect(addr1).addStake(1, 0, ethers.utils.parseEther("50"));
+            await token.connect(addr1)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("50"), ethers.utils.defaultAbiCoder.encode(["uint256", "uint256"], [1, 0]));
 
             // retrieve stake id
             let addr1StakeId = await distamarkets.getStakeId(addr1.address, 1, 0);
@@ -194,16 +161,13 @@ describe("Distamarkets contract", () => {
             await createMarket();
             await createMarket();
 
-            // approve transfer
-            await token.connect(addr1).approve(distamarkets.address, ethers.utils.parseEther("75"));
-
-            // add stake to both markets
-            await distamarkets.connect(addr1).addStake(1, 0, ethers.utils.parseEther("50"));
-            await distamarkets.connect(addr1).addStake(2, 1, ethers.utils.parseEther("25"));
+            await token.connect(addr1)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("50"), ethers.utils.defaultAbiCoder.encode(["uint256", "uint256"], [1, 0]));
+            await token.connect(addr1)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("25"), ethers.utils.defaultAbiCoder.encode(["uint256", "uint256"], [2, 1]));
 
             // ensure stakes are correct
             let userStakes = await distamarkets.getUserStakes(addr1.address);
             expect(userStakes.length).to.equal(2);
         });
+        
     });
 });

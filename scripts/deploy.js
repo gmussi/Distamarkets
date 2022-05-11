@@ -25,7 +25,8 @@ async function main() {
 
     console.log("Verifying contract on etherscan.")
     await hre.run("verify:verify", {
-        address: distamarkets.address
+        address: distamarkets.address,
+        constructorArguments: [tokenAddress]
     });
       
 

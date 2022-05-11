@@ -2,8 +2,9 @@
 pragma solidity ^0.8.7;
 
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "erc-payable-token/contracts/token/ERC1363/IERC1363Spender.sol";
 
-contract Distamarkets {
+contract Distamarkets is IERC1363Spender {
     using SafeERC20 for IERC20;
 
     event MarketCreated(address indexed creator, uint256 indexed marketId, string name);
@@ -71,12 +72,18 @@ contract Distamarkets {
         return marketId;
     }
 
-    function addStake(uint256 marketId_, uint256 outcomeId_, uint256 amount_) external openMarket(marketId_) returns (uint256) {
+    function onApprovalReceived(address sender_, uint256 amount_, bytes calldata data_) external override returns (bytes4) {
         require(amount_ > 0, "Cannot add 0 stake");
+        require(sender_ != address(0), "Invalid sender");
 
-        // TODO investigate if the gas cost of next 2 lines are worth the good error message
-        uint256 allowedToken = _token.allowance(msg.sender, address(this));
-        require(amount_ <= allowedToken, "Approve amount is not high enough");
+        // extract encoded data
+        uint256 marketId_;
+        uint256 outcomeId_;
+
+        (marketId_, outcomeId_) = abi.decode(data_, (uint256, uint256));
+
+        // validate data received
+        require(marketId_ != 0, "Invalid market id");
 
         Market storage market = _markets[marketId_ - 1];
         MarketOutcome storage outcome = market.outcomes[outcomeId_];
@@ -85,7 +92,7 @@ contract Distamarkets {
         outcome.totalStake = outcome.totalStake + amount_;
 
         // user already has stake?
-        uint256 stakeId = outcome.holders[msg.sender];
+        uint256 stakeId = outcome.holders[sender_];
         UserStake storage stake;
 
         if (stakeId == 0) {
@@ -96,8 +103,8 @@ contract Distamarkets {
             stake.marketId = marketId_;
             stake.outcomeId = outcomeId_;
 
-            _stakesByUser[msg.sender].push(stakeId);
-            outcome.holders[msg.sender] = stakeId;
+            _stakesByUser[sender_].push(stakeId);
+            outcome.holders[sender_] = stakeId;
         } else {
             // loading existing stake
             stake = _userStakes[stakeId - 1];
@@ -107,15 +114,15 @@ contract Distamarkets {
         stake.amount = stake.amount + amount_;
 
         _token.safeTransferFrom(
-            msg.sender,
+            sender_,
             address(this),
             amount_
         );
         updateBalance();
 
-        emit StakeChanged(stakeId, amount_, marketId_, msg.sender);
-        
-        return stake.amount;
+        emit StakeChanged(stakeId, amount_, marketId_, sender_);
+
+        return this.onApprovalReceived.selector;
     }
 
     function removeStake(uint256 stakeId_, uint256 amount_) external openMarket(_userStakes[stakeId_ - 1].marketId) returns (uint256) {
@@ -194,8 +201,12 @@ contract Distamarkets {
         return _tokenBalance;
     }
 
+    function isMarketOpen(uint256 marketId_) public view returns (bool) {
+        return _markets[marketId_ - 1].state == MarketState.OPEN;
+    }
+
     modifier openMarket(uint256 marketId_) {
-        require(_markets[marketId_ - 1].state == MarketState.OPEN);
+        require(isMarketOpen(marketId_));
         _;
     }
 }
