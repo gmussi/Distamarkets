@@ -14,6 +14,8 @@ const createMarket = async () => {
 
     // create market
     await distamarkets.connect(addr1).createMarket("Will this first market work?", "ipfs://test/test1.png", timeLimit, [ethers.utils.formatBytes32String ('no'), ethers.utils.formatBytes32String('yes')]);
+    
+    return timeLimit;
 };
 
 describe("Distamarkets contract", () => {
@@ -44,7 +46,7 @@ describe("Distamarkets contract", () => {
     describe("Markets", () => {
         it ("Should create markets", async () => {
             // create first market
-            await createMarket();
+            let timeLimit = await createMarket();
             
             let marketId = await distamarkets.getMarketIndex();
             expect(marketId).to.equal(1);
@@ -56,10 +58,11 @@ describe("Distamarkets contract", () => {
             expect(newMarketId).to.equal(2);
 
             // check everything was saved correctly
-            [title, image, state, stake, outcomeNames, outcomeStakes]  = await distamarkets.getMarket(1);
+            [title, image, state, stake, closingTime, outcomeNames, outcomeStakes]  = await distamarkets.getMarket(1);
 
             expect(title).to.equal("Will this first market work?");
             expect(image).to.equal("ipfs://test/test1.png");
+            expect(closingTime).to.equal(timeLimit);
             expect(outcomeNames[0]).to.equal(ethers.utils.formatBytes32String ('no'));
             expect(outcomeNames[1]).to.equal(ethers.utils.formatBytes32String ('yes'));
         });

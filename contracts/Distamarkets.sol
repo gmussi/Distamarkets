@@ -11,7 +11,7 @@ contract Distamarkets is IERC1363Spender {
     event StakeChanged(uint256 indexed stakeId, uint256 amount, uint256 indexed marketId, address indexed user);
     event MarketStateChanged(uint256 indexed marketId, MarketState);
 
-    enum MarketState { OPEN, CLOSED, CANCELED }
+    enum MarketState { OPEN, ENDED, CLOSED, CANCELED }
 
     struct Market {
         // market details
@@ -157,7 +157,7 @@ contract Distamarkets is IERC1363Spender {
         return stake.amount;
     }
 
-    function getMarket(uint256 marketId_) public view returns (string memory, string memory, MarketState, uint256, bytes32[] memory, uint256[] memory) {
+    function getMarket(uint256 marketId_) public view returns (string memory, string memory, MarketState, uint256, uint, bytes32[] memory, uint256[] memory) {
         Market storage market = _markets[marketId_ - 1];
         
         bytes32[] memory outcomeNames = new bytes32[](market.numOutcomes);
@@ -168,7 +168,7 @@ contract Distamarkets is IERC1363Spender {
             outcomeStakes[i] = (market.outcomes[i].totalStake);
         }
 
-        return (market.title, market.image, market.state, market.totalStake, outcomeNames, outcomeStakes);
+        return (market.title, market.image, market.state, market.totalStake, market.closingTime, outcomeNames, outcomeStakes);
     }
 
     function updateBalance() public {
