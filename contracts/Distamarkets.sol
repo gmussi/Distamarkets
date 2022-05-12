@@ -83,7 +83,8 @@ contract Distamarkets is IERC1363Spender {
         (marketId_, outcomeId_) = abi.decode(data_, (uint256, uint256));
 
         // validate data received
-        require(marketId_ != 0, "Invalid market id");
+        require(marketId_ != 0 && marketId_ <= _markets.length, "Invalid market id");
+        require(isMarketOpen(marketId_), "Market is not open");
 
         Market storage market = _markets[marketId_ - 1];
         MarketOutcome storage outcome = market.outcomes[outcomeId_];

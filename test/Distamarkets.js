@@ -25,9 +25,11 @@ describe("Distamarkets contract", () => {
     });
 
     describe("Deployment", () => {
-        /*it ("Should set the right owner", async () => {
-            expect(await distamarkets.owner()).to.equal(owner.address);
-        });*/
+        it ("Should return the correct token address", async () => {
+            let tokenAddress = await distamarkets.token();
+            
+            expect(tokenAddress).to.equal(token.address);
+        });
 
     });
     
@@ -82,6 +84,19 @@ describe("Distamarkets contract", () => {
             expect(totalStake).to.equal(ethers.utils.parseEther("75"));
         });
 
+        it ("Should return correct amount of tokens in contract", async () => {
+            // create 2 markets
+            await createMarket();
+            await createMarket();
+
+            // add 75 tokens across both contracts
+            await token.connect(addr1)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("50"), ethers.utils.defaultAbiCoder.encode(["uint256", "uint256"], [1, 0]));
+            await token.connect(addr2)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("25"), ethers.utils.defaultAbiCoder.encode(["uint256", "uint256"], [2, 1]));
+
+            // contract should have 75 tokens
+            let tokenBalance = await distamarkets.tokenBalance();
+            expect(tokenBalance).to.equal(ethers.utils.parseEther("75"));
+        });
              
         it ("Should allow removing stake", async () => {
             // create market
@@ -168,6 +183,39 @@ describe("Distamarkets contract", () => {
             let userStakes = await distamarkets.getUserStakes(addr1.address);
             expect(userStakes.length).to.equal(2);
         });
+
+        it ("Should fail with invalid address callback", async () => {
+            // create market
+            await createMarket();
+
+            await expect(distamarkets.onApprovalReceived(
+                "0x0000000000000000000000000000000000000000", 
+                ethers.utils.parseEther("25"), 
+                ethers.utils.defaultAbiCoder.encode(["uint256", "uint256"], [2, 1]))
+            ).to.be.revertedWith('Invalid sender');
+        }); 
+
+        it ("Should fail with invalid market id", async () => {
+            // create market
+            await createMarket();
+
+            let initialBalance = await token.balanceOf(addr1.address);
+
+            // add stake on wrong market
+            await expect(token.connect(addr1)
+            ["approveAndCall(address,uint256,bytes)"](
+                distamarkets.address, 
+                ethers.utils.parseEther("50"), 
+                ethers.utils.defaultAbiCoder.encode(["uint256", "uint256"], [3, 0]))
+            ).to.be.revertedWith("Invalid market id");
+
+            // user should still have same amount of tokens
+            let finalBalance = await token.balanceOf(addr1.address);
+            expect(initialBalance).to.equal(finalBalance);
+        });
         
+        it ("Should fail when adding stake to a non-open market", async () => {
+
+        });
     });
 });
