@@ -18,6 +18,7 @@ contract Distamarkets is IERC1363Spender {
         string title;
         string image;
         uint numOutcomes;
+        uint closingTime;
         uint256 totalStake;
         MarketState state;
         address creator;
@@ -50,7 +51,7 @@ contract Distamarkets is IERC1363Spender {
         _token = token_;
     }
 
-    function createMarket(string calldata title_, string calldata image_, bytes32[] memory outcomeNames_) external returns(uint256) {
+    function createMarket(string calldata title_, string calldata image_, uint closingTime_, bytes32[] memory outcomeNames_) external returns(uint256) {
         _markets.push();
         uint marketId = _markets.length;
         
@@ -58,6 +59,7 @@ contract Distamarkets is IERC1363Spender {
         market.title = title_;
         market.image = image_;
         market.numOutcomes = outcomeNames_.length;
+        market.closingTime = closingTime_;
         market.creator = msg.sender;
         market.state = MarketState.OPEN;
 
@@ -203,7 +205,11 @@ contract Distamarkets is IERC1363Spender {
     }
 
     function isMarketOpen(uint256 marketId_) public view returns (bool) {
-        return _markets[marketId_ - 1].state == MarketState.OPEN;
+        Market storage market = _markets[marketId_ - 1];
+        return 
+            market.state == MarketState.OPEN
+        &&
+            block.timestamp < market.closingTime;
     }
 
     modifier openMarket(uint256 marketId_) {

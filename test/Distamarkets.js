@@ -4,8 +4,16 @@ let Distamarkets, distamarkets, owner, addr1, addr2, Token, token;
 
 // help functions
 const createMarket = async () => {
+    // get market block timestamp
+    const blockNumBefore = await ethers.provider.getBlockNumber();
+    const blockBefore = await ethers.provider.getBlock(blockNumBefore);
+    const timestampBefore = blockBefore.timestamp; 
+    
+    // add 1 hour
+    let timeLimit = timestampBefore + 3600;
+
     // create market
-    await distamarkets.connect(addr1).createMarket("Will this first market work?", "ipfs://test/test1.png", [ethers.utils.formatBytes32String ('no'), ethers.utils.formatBytes32String('yes')]);
+    await distamarkets.connect(addr1).createMarket("Will this first market work?", "ipfs://test/test1.png", timeLimit, [ethers.utils.formatBytes32String ('no'), ethers.utils.formatBytes32String('yes')]);
 };
 
 describe("Distamarkets contract", () => {
@@ -215,6 +223,38 @@ describe("Distamarkets contract", () => {
         });
         
         it ("Should fail when adding stake to a non-open market", async () => {
+            // creates 2 markets
+            await createMarket();
+
+            // advance 1 hour
+            await ethers.provider.send('evm_increaseTime', [3600]);
+            await ethers.provider.send('evm_mine');
+
+            // should fail to market being closed
+            await expect(token.connect(addr1)
+            ["approveAndCall(address,uint256,bytes)"](
+                distamarkets.address, 
+                ethers.utils.parseEther("50"), 
+                ethers.utils.defaultAbiCoder.encode(["uint256", "uint256"], [1, 0]))
+            ).to.be.revertedWith("Market is not open");
+        });
+
+        it ("Should fail when removing stake from a non-open market", async() => {
+            // creates 2 markets
+            await createMarket();
+
+            await token.connect(addr1)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("50"), ethers.utils.defaultAbiCoder.encode(["uint256", "uint256"], [1, 0]));
+
+            // advance 1 hour
+            await ethers.provider.send('evm_increaseTime', [3601]);
+            await ethers.provider.send('evm_mine');
+
+            // remove part of stake
+            let addr1StakeId = await distamarkets.getStakeId(addr1.address, 1, 0);
+
+            await expect(distamarkets.connect(addr1).
+                removeStake(addr1StakeId, ethers.utils.parseEther("10"))
+            ).to.be.reverted;
 
         });
     });
