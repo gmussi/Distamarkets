@@ -11,7 +11,7 @@ contract Distamarkets is IERC1363Spender {
     event StakeChanged(uint256 indexed stakeId, uint256 amount, uint256 indexed marketId, address indexed user);
     event MarketStateChanged(uint256 indexed marketId, MarketState);
 
-    enum MarketState { OPEN, ENDED, CLOSED, CANCELED }
+    enum MarketState { OPEN, ENDED, RESOLVED, DISPUTED, CLOSED, CANCELED } 
 
     struct Market {
         // market details
@@ -19,7 +19,9 @@ contract Distamarkets is IERC1363Spender {
         string image;
         uint numOutcomes;
         uint closingTime;
+        uint resolvedAt;
         uint256 totalStake;
+        uint256 finalOutcomeId;
         MarketState state;
         address creator;
         mapping(uint256 => MarketOutcome) outcomes;
@@ -168,7 +170,51 @@ contract Distamarkets is IERC1363Spender {
             outcomeStakes[i] = (market.outcomes[i].totalStake);
         }
 
-        return (market.title, market.image, market.state, market.totalStake, market.closingTime, outcomeNames, outcomeStakes);
+        MarketState state = market.state;
+        if (state == MarketState.OPEN && block.timestamp < market.closingTime) {
+            state = MarketState.ENDED;
+        }
+
+        return (market.title, market.image, state, market.totalStake, market.closingTime, outcomeNames, outcomeStakes);
+    }
+
+    function resolveMarket(uint256 marketId_, uint256 finalOutcomeId_) external {
+        Market storage market = _markets[marketId_ - 1];
+
+        require(msg.sender == market.creator, "Only the creator can resolve the market");
+        require(market.state == MarketState.OPEN, "Only open markets can be resolved");
+        require(block.timestamp > market.closingTime, "Market can only be closed after the specified period");
+
+        market.state = MarketState.RESOLVED;
+        market.resolvedAt = block.timestamp;
+        market.finalOutcomeId = finalOutcomeId_;
+    } 
+
+    /*function withdrawReward(uint256 stakeId_) external {
+        UserStake storage stake = _userStakes[stakeId_ - 1];
+
+        uint256 reward = _getReward(stake);
+    }*/
+
+    function calculateReward(uint256 stakeId_) external view returns (uint256) {
+        UserStake storage stake = _userStakes[stakeId_ - 1];
+
+        return _calculateReward(stake);
+    }
+
+    function _calculateReward(UserStake storage stake_) internal view returns (uint256) {
+        Market storage market = _markets[stake_.marketId - 1];
+        MarketOutcome storage outcome = market.outcomes[stake_.outcomeId];
+
+        uint256 totalStake = market.totalStake; 
+
+        uint256 outcomeStake = outcome.totalStake;
+
+        uint256 rewardBucket = totalStake - outcomeStake;
+
+        uint256 finalStake = stake_.amount * rewardBucket / outcomeStake;
+
+        return finalStake;
     }
 
     function updateBalance() public {

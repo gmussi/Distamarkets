@@ -1,6 +1,6 @@
 const { expect } = require("chai");
 
-let Distamarkets, distamarkets, owner, addr1, addr2, Token, token;
+let Distamarkets, distamarkets, owner, addr1, addr2, addr3, addr4, Token, token;
 
 // help functions
 const createMarket = async () => {
@@ -18,7 +18,7 @@ const createMarket = async () => {
     return timeLimit;
 };
 
-describe("Distamarkets contract", () => {
+describe("Distamarkets", () => {
     beforeEach(async () => {
         // deploy token first
         Token = await ethers.getContractFactory("WFAIRToken");
@@ -27,11 +27,13 @@ describe("Distamarkets contract", () => {
         // deploy contract
         Distamarkets = await ethers.getContractFactory("Distamarkets");
         distamarkets = await Distamarkets.deploy(token.address);
-        [owner, addr1, addr2, _] = await ethers.getSigners(); 
+        [owner, addr1, addr2, addr3, addr4, _] = await ethers.getSigners(); 
 
         // distribute 1k tokens for each user
         await token.connect(owner).transfer(addr1.address, ethers.utils.parseEther("1000"));
         await token.connect(owner).transfer(addr2.address, ethers.utils.parseEther("1000"));
+        await token.connect(owner).transfer(addr3.address, ethers.utils.parseEther("1000"));
+        await token.connect(owner).transfer(addr4.address, ethers.utils.parseEther("1000"));
     });
 
     describe("Deployment", () => {
@@ -258,6 +260,85 @@ describe("Distamarkets contract", () => {
             await expect(distamarkets.connect(addr1).
                 removeStake(addr1StakeId, ethers.utils.parseEther("10"))
             ).to.be.reverted;
+
+        });
+    });
+
+    describe("State transitions", async () => {
+        it ("Should not resolve market before the time is over", async () => {
+            // creates 2 markets
+            await createMarket();
+
+            // advance 1 hour
+            await ethers.provider.send('evm_increaseTime', [1000]);
+            await ethers.provider.send('evm_mine');
+
+            // trying to resolve should end in failure
+            await expect(distamarkets.connect(addr1).resolveMarket(1, 0)).to.be.revertedWith("Market can only be closed after the specified period");
+        });
+
+        it ("Should allow only creator to resolve", async () => {
+
+        });
+
+        it ("Should allow only open markets to be resolved", async () => {
+            // creates 2 markets
+            await createMarket();
+
+            // advance 1 hour
+            await ethers.provider.send('evm_increaseTime', [3601]);
+            await ethers.provider.send('evm_mine');
+
+            // resolve first time ok
+            await distamarkets.connect(addr1).resolveMarket(1, 0);
+
+            // resolve second time error
+            
+        });
+
+        it ("Should resolve market when time is over", async() => {
+            // creates 2 markets
+            await createMarket();
+
+            // advance 1 hour
+            await ethers.provider.send('evm_increaseTime', [3601]);
+            await ethers.provider.send('evm_mine');
+
+            await distamarkets.connect(addr1).resolveMarket(1, 0);
+
+            let [, , state] = await distamarkets.getMarket(1);
+            expect(state).to.equal(2);
+        });
+    });
+
+    describe("Withdraw rewards", async() => {
+        it("Should calculate rewards correctly", async () => {
+            await createMarket();
+
+            // add multiple stakes to the outcomes
+            await token.connect(addr1)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("250"), ethers.utils.defaultAbiCoder.encode(["uint256", "uint256"], [1, 0]));
+            await token.connect(addr2)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("300"), ethers.utils.defaultAbiCoder.encode(["uint256", "uint256"], [1, 0]));
+            await token.connect(addr3)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("90"), ethers.utils.defaultAbiCoder.encode(["uint256", "uint256"], [1, 1]));
+            await token.connect(addr4)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("20"), ethers.utils.defaultAbiCoder.encode(["uint256", "uint256"], [1, 1]));
+
+            // retrieve all stake ids
+            let addr1StakeId = await distamarkets.getStakeId(addr1.address, 1, 0);
+            let addr2StakeId = await distamarkets.getStakeId(addr2.address, 1, 0);
+            let addr3StakeId = await distamarkets.getStakeId(addr3.address, 1, 1);
+            let addr4StakeId = await distamarkets.getStakeId(addr4.address, 1, 1);
+
+            // potential reward of addr should be 50
+            expect(await distamarkets.calculateReward(addr1StakeId)).to.equal(ethers.utils.parseEther("50"));
+            expect(await distamarkets.calculateReward(addr2StakeId)).to.equal(ethers.utils.parseEther("60"));
+            expect(await distamarkets.calculateReward(addr3StakeId)).to.equal(ethers.utils.parseEther("450"));
+            expect(await distamarkets.calculateReward(addr4StakeId)).to.equal(ethers.utils.parseEther("100"));
+        });
+
+        it ("Should retrieve rewards", async () => {
+
+        });
+
+        it ("Should only retrieve when market is closed", async () => {
 
         });
     });
