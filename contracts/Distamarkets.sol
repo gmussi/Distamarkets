@@ -3,40 +3,34 @@ pragma solidity ^0.8.7;
 
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "erc-payable-token/contracts/token/ERC1363/IERC1363Spender.sol";
+import "hardhat/console.sol";
 
 contract Distamarkets is IERC1363Spender {
     using SafeERC20 for IERC20;
 
-    event MarketCreated(address indexed creator, uint256 indexed marketId, string name);
-    event StakeChanged(uint256 indexed stakeId, uint256 amount, uint256 indexed marketId, address indexed user);
-    event MarketStateChanged(uint256 indexed marketId, MarketState);
+    event MarketCreated(bytes32 indexed marketId_, address indexed oracle_, uint indexed closingTime_, uint numOutcomes_);
+    event StakeChanged(bytes32 indexed marketId, uint256 outcomeId_, address indexed user, uint256 oldBalance, uint256 newBalance);
+    event MarketStateChanged(bytes32 indexed marketId, MarketState);
 
     enum MarketState { OPEN, ENDED, RESOLVED, DISPUTED, CLOSED, CANCELED } 
 
     struct Market {
         // market details
-        string title;
-        string image;
-        uint numOutcomes;
-        uint closingTime;
-        uint resolvedAt;
+        address oracle;
+        address creator;
+        uint256 numOutcomes;
+        uint256 closingTime;
+        uint256 resolvedAt;
         uint256 totalStake;
         uint256 finalOutcomeId;
         MarketState state;
-        address creator;
-        mapping(uint256 => MarketOutcome) outcomes;
-    }
-
-    struct MarketOutcome {
-        // outcome details
-        uint256 id;
-        uint256 totalStake;
-        bytes32 outcomeName;
-        mapping(address => uint256) holders; // User => UserStake
+        // outcome index => user => user stake id
+        mapping(uint256 => mapping(address => uint256)) stakes;
+        mapping(uint256 => uint256) outcomeStakes;
     }
 
     struct UserStake {
-        uint256 marketId;
+        bytes32 marketId;
         uint256 outcomeId;
         uint256 amount;
         address user;
@@ -45,7 +39,12 @@ contract Distamarkets is IERC1363Spender {
     IERC20 internal immutable _token;
     uint256 internal _tokenBalance;
 
-    Market[] _markets;
+    // uint256 _depositFee = 0.3 ether; // 0.3% fee
+    // uint256 _withdrawFee = 10 ether; // 10% fee
+
+    // market id => Market
+    mapping(bytes32 => Market) _markets;
+
     UserStake[] _userStakes;
     mapping(address => uint256[]) _stakesByUser; // User => UserStake Ids
 
@@ -53,27 +52,15 @@ contract Distamarkets is IERC1363Spender {
         _token = token_;
     }
 
-    function createMarket(string calldata title_, string calldata image_, uint closingTime_, bytes32[] memory outcomeNames_) external returns(uint256) {
-        _markets.push();
-        uint marketId = _markets.length;
-        
-        Market storage market = _markets[marketId - 1];
-        market.title = title_;
-        market.image = image_;
-        market.numOutcomes = outcomeNames_.length;
-        market.closingTime = closingTime_;
+    function createMarket(bytes32 marketId_, address oracle_, uint closingTime_, uint numOutcomes_) external {
+        Market storage market = _markets[marketId_];
+        market.oracle = oracle_;
         market.creator = msg.sender;
+        market.numOutcomes = numOutcomes_;
+        market.closingTime = closingTime_;
         market.state = MarketState.OPEN;
 
-        for (uint i = 0; i < outcomeNames_.length; i++) {
-            MarketOutcome storage outcome = market.outcomes[i];
-            outcome.id = i;
-            outcome.outcomeName = outcomeNames_[i];
-        }
-
-        emit MarketCreated(msg.sender, marketId, title_); 
-
-        return marketId;
+        emit MarketCreated(marketId_, oracle_, closingTime_, numOutcomes_); 
     }
 
     function onApprovalReceived(address sender_, uint256 amount_, bytes calldata data_) external override returns (bytes4) {
@@ -81,23 +68,23 @@ contract Distamarkets is IERC1363Spender {
         require(sender_ != address(0), "Invalid sender");
 
         // extract encoded data
-        uint256 marketId_;
+        bytes32 marketId_;
         uint256 outcomeId_;
 
-        (marketId_, outcomeId_) = abi.decode(data_, (uint256, uint256));
+        (marketId_, outcomeId_) = abi.decode(data_, (bytes32, uint256));
 
+        Market storage market = _markets[marketId_];
+        
         // validate data received
-        require(marketId_ != 0 && marketId_ <= _markets.length, "Invalid market id");
+        require(market.oracle != address(0), "Market not found or not initialized");
         require(isMarketOpen(marketId_), "Market is not open");
 
-        Market storage market = _markets[marketId_ - 1];
-        MarketOutcome storage outcome = market.outcomes[outcomeId_];
 
         market.totalStake = market.totalStake + amount_;
-        outcome.totalStake = outcome.totalStake + amount_;
+        market.outcomeStakes[outcomeId_] = market.outcomeStakes[outcomeId_] + amount_;
 
         // user already has stake?
-        uint256 stakeId = outcome.holders[sender_];
+        uint256 stakeId = market.stakes[outcomeId_][sender_];
         UserStake storage stake;
 
         if (stakeId == 0) {
@@ -109,14 +96,19 @@ contract Distamarkets is IERC1363Spender {
             stake.outcomeId = outcomeId_;
 
             _stakesByUser[sender_].push(stakeId);
-            outcome.holders[sender_] = stakeId;
+            market.stakes[outcomeId_][sender_] = stakeId;
+
+            console.log("Created stake id ", stakeId);
+            console.log("And saved ", market.stakes[outcomeId_][sender_]);
         } else {
             // loading existing stake
             stake = _userStakes[stakeId - 1];
         }
         
         // update stake amount
-        stake.amount = stake.amount + amount_;
+        uint256 oldBalance = stake.amount;
+        uint256 newBalance = stake.amount + amount_;
+        stake.amount = newBalance;
 
         _token.safeTransferFrom(
             sender_,
@@ -125,7 +117,7 @@ contract Distamarkets is IERC1363Spender {
         );
         updateBalance();
 
-        emit StakeChanged(stakeId, amount_, marketId_, sender_);
+        emit StakeChanged(marketId_, outcomeId_, sender_, oldBalance, newBalance);
 
         return this.onApprovalReceived.selector;
     }
@@ -133,19 +125,18 @@ contract Distamarkets is IERC1363Spender {
     function removeStake(uint256 stakeId_, uint256 amount_) external openMarket(_userStakes[stakeId_ - 1].marketId) returns (uint256) {
         require(amount_ > 0, "Cannot remove 0 stake");
 
-        // TODO There should be no way to reach this error condition:
-        // require(amount_ <= _tokenBalance, "Contract does not have enough tokens");
-
         UserStake storage stake = _userStakes[stakeId_ - 1];
 
-        Market storage market = _markets[stake.marketId - 1];
-        MarketOutcome storage outcome = market.outcomes[stake.outcomeId];
+        Market storage market = _markets[stake.marketId];
 
         require(stake.amount >= amount_, "Amount exceeds current stake");
 
         market.totalStake = market.totalStake - amount_;
-        outcome.totalStake = outcome.totalStake - amount_;
-        stake.amount = stake.amount - amount_;
+        market.outcomeStakes[stake.outcomeId] = market.outcomeStakes[stake.outcomeId] - amount_;
+        
+        uint256 oldBalance = stake.amount;
+        uint256 newBalance = stake.amount - amount_;
+        stake.amount = newBalance;
 
         _token.safeTransfer(
             msg.sender,
@@ -154,34 +145,26 @@ contract Distamarkets is IERC1363Spender {
 
         updateBalance();
 
-        emit StakeChanged(stakeId_, amount_, stake.marketId, msg.sender);
+        emit StakeChanged(stake.marketId, stake.outcomeId, msg.sender, oldBalance, newBalance);
 
         return stake.amount;
     }
 
-    function getMarket(uint256 marketId_) public view returns (string memory, string memory, MarketState, uint256, uint, bytes32[] memory, uint256[] memory) {
-        Market storage market = _markets[marketId_ - 1];
-        
-        bytes32[] memory outcomeNames = new bytes32[](market.numOutcomes);
-        uint256[] memory outcomeStakes = new uint256[](market.numOutcomes);
-
-        for (uint i = 0; i < market.numOutcomes; i++) {
-            outcomeNames[i] = (market.outcomes[i].outcomeName);
-            outcomeStakes[i] = (market.outcomes[i].totalStake);
-        }
+    function getMarket(bytes32 marketId_) public view returns (address, address, uint256, uint256, uint256, uint256, uint256, MarketState) {
+        Market storage market = _markets[marketId_];
 
         MarketState state = market.state;
         if (state == MarketState.OPEN && block.timestamp < market.closingTime) {
             state = MarketState.ENDED;
         }
 
-        return (market.title, market.image, state, market.totalStake, market.closingTime, outcomeNames, outcomeStakes);
+        return (market.oracle, market.creator, market.numOutcomes, market.closingTime, market.resolvedAt, market.totalStake, market.finalOutcomeId, market.state);
     }
 
-    function resolveMarket(uint256 marketId_, uint256 finalOutcomeId_) external {
-        Market storage market = _markets[marketId_ - 1];
+    function resolveMarket(bytes32 marketId_, uint256 finalOutcomeId_) external {
+        Market storage market = _markets[marketId_];
 
-        require(msg.sender == market.creator, "Only the creator can resolve the market");
+        require(msg.sender == market.oracle, "Only the oracle can resolve the market");
         require(market.state == MarketState.OPEN, "Only open markets can be resolved");
         require(block.timestamp > market.closingTime, "Market can only be closed after the specified period");
 
@@ -203,12 +186,11 @@ contract Distamarkets is IERC1363Spender {
     }
 
     function _calculateReward(UserStake storage stake_) internal view returns (uint256) {
-        Market storage market = _markets[stake_.marketId - 1];
-        MarketOutcome storage outcome = market.outcomes[stake_.outcomeId];
-
+        Market storage market = _markets[stake_.marketId];
+        
         uint256 totalStake = market.totalStake; 
 
-        uint256 outcomeStake = outcome.totalStake;
+        uint256 outcomeStake = market.outcomeStakes[stake_.outcomeId];
 
         uint256 rewardBucket = totalStake - outcomeStake;
 
@@ -222,16 +204,13 @@ contract Distamarkets is IERC1363Spender {
         _tokenBalance = _token.balanceOf(address(this));
     }
 
-    function getMarketIndex() public view returns (uint256) {
-        return _markets.length;
+    function getStakeId(address holder_, bytes32 marketId_, uint256 outcomeId_) public view returns (uint256) {
+        console.log("Found stake id ", _markets[marketId_].stakes[outcomeId_][holder_]);
+        return _markets[marketId_].stakes[outcomeId_][holder_];
     }
 
-    function getStakeId(address holder_, uint256 marketId_, uint256 outcomeId_) public view returns (uint256) {
-        return _markets[marketId_ - 1].outcomes[outcomeId_].holders[holder_];
-    }
-
-    function getMarketTotalStake(uint256 marketId_) public view returns (uint256) {
-        return _markets[marketId_ - 1].totalStake;
+    function getMarketTotalStake(bytes32 marketId_) public view returns (uint256) {
+        return _markets[marketId_].totalStake;
     }
 
     function getUserStakes(address address_) public view returns(uint256[] memory) {
@@ -239,6 +218,7 @@ contract Distamarkets is IERC1363Spender {
     }
 
     function getStake(uint256 stakeId_) public view returns(UserStake memory) {
+        console.log("Getting stake with id ", stakeId_);
         return _userStakes[stakeId_ - 1];
     }
 
@@ -250,15 +230,15 @@ contract Distamarkets is IERC1363Spender {
         return _tokenBalance;
     }
 
-    function isMarketOpen(uint256 marketId_) public view returns (bool) {
-        Market storage market = _markets[marketId_ - 1];
+    function isMarketOpen(bytes32 marketId_) public view returns (bool) {
+        Market storage market = _markets[marketId_];
         return 
             market.state == MarketState.OPEN
         &&
             block.timestamp < market.closingTime;
     }
 
-    modifier openMarket(uint256 marketId_) {
+    modifier openMarket(bytes32 marketId_) {
         require(isMarketOpen(marketId_));
         _;
     }
