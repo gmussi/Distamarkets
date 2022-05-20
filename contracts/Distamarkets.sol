@@ -6,6 +6,10 @@ import "erc-payable-token/contracts/token/ERC1363/IERC1363Spender.sol";
 
 //import "hardhat/console.sol";
 
+/// @title A pot-style betting platform
+/// @author Guilherme Mussi <github.com/gmussi>
+/// @notice Contract current in MVP stage, being developed in increment steps towards Wallfair Whitepaper
+/// @dev On every change, the entire contract should have full coverage and pass linter checks
 contract Distamarkets is IERC1363Spender {
     using SafeERC20 for IERC20;
 
@@ -73,16 +77,37 @@ contract Distamarkets is IERC1363Spender {
     UserStake[] _userStakes;
     mapping(address => uint256[]) _stakesByUser; // User => UserStake Ids
 
+    /// @notice This contract is intended to be used with WFAIR token (see README)
+    /// @dev The contract operates bets using the specified ERC20 token
+    /// @param token_ an ERC20 token
     constructor(IERC20 token_) {
         _token = token_;
     }
 
+    /// @notice This function creates a new market with the specified settings
+    /// @dev The marketId should be the hash of the ipfs file containing the metadata of this market
+    /// @param marketId_ A unique bytes32 identifying this market
+    /// @param oracle_ The address who will be able to resolve this market
+    /// @param closingTime_ The time in which this market can be closed
+    /// @param numOutcomes_ The number of outcomes this market has
     function createMarket(
         bytes32 marketId_,
         address oracle_,
         uint256 closingTime_,
         uint256 numOutcomes_
     ) external {
+        require(
+            _markets[marketId_].oracle == address(0),
+            "Market already exists"
+        );
+        require(oracle_ != address(0), "Invalid oracle address");
+        require(
+            closingTime_ > block.timestamp,
+            "Cannot create markets that close on the past"
+        );
+        require(numOutcomes_ >= 2, "Market needs at least 2 outcomes");
+
+        // Creates a market
         Market storage market = _markets[marketId_];
         market.oracle = oracle_;
         market.creator = msg.sender;
@@ -93,6 +118,10 @@ contract Distamarkets is IERC1363Spender {
         emit MarketCreated(marketId_, oracle_, closingTime_, numOutcomes_);
     }
 
+    /// @notice Use ERC1363 callback to avoid user needing to approve deposit before-hand
+    /// @param sender_ The user who made the ERC20 approval
+    /// @param amount_ The amount of tokens approved
+    /// @param data_ Encoded abi with (bytes32, uint256) for (market id, 0-based outcome index)
     function onApprovalReceived(
         address sender_,
         uint256 amount_,
@@ -104,18 +133,17 @@ contract Distamarkets is IERC1363Spender {
         // extract encoded data
         bytes32 marketId_;
         uint256 outcomeId_;
-
         (marketId_, outcomeId_) = abi.decode(data_, (bytes32, uint256));
 
+        // load market and validate initialization
         Market storage market = _markets[marketId_];
-
-        // validate data received
         require(
             market.oracle != address(0),
             "Market not found or not initialized"
         );
         require(isMarketOpen(marketId_), "Market is not open");
 
+        // update indexed values
         market.totalStake = market.totalStake + amount_;
         market.outcomeStakes[outcomeId_] =
             market.outcomeStakes[outcomeId_] +
@@ -145,6 +173,7 @@ contract Distamarkets is IERC1363Spender {
         uint256 newBalance = stake.amount + amount_;
         stake.amount = newBalance;
 
+        // make the approved token transfer and update balance
         _token.safeTransferFrom(sender_, address(this), amount_);
         updateBalance();
 
@@ -159,18 +188,23 @@ contract Distamarkets is IERC1363Spender {
         return this.onApprovalReceived.selector;
     }
 
-    function removeStake(uint256 stakeId_, uint256 amount_)
-        external
-        returns (uint256)
-    {
+    /// @notice Removes a stake (Cashout) from a market. User can remove only part of the stake.
+    /// @param stakeId_ The stake id
+    /// @param amount_ Amount to be removed
+    function removeStake(uint256 stakeId_, uint256 amount_) external {
         require(amount_ > 0, "Cannot remove 0 stake");
+
+        // load stake
         UserStake storage stake = _userStakes[stakeId_ - 1];
 
+        // cannot remove stake from closed market
         require(isMarketOpen(stake.marketId), "Market must be open");
-        Market storage market = _markets[stake.marketId];
 
+        // users cannot remove more stake then they have
+        Market storage market = _markets[stake.marketId];
         require(stake.amount >= amount_, "Amount exceeds current stake");
 
+        // update indexed values
         market.totalStake = market.totalStake - amount_;
         market.outcomeStakes[stake.outcomeId] =
             market.outcomeStakes[stake.outcomeId] -
@@ -180,8 +214,8 @@ contract Distamarkets is IERC1363Spender {
         uint256 newBalance = stake.amount - amount_;
         stake.amount = newBalance;
 
+        // transfer the tokens to the user
         _token.safeTransfer(msg.sender, amount_);
-
         updateBalance();
 
         emit StakeChanged(
@@ -191,10 +225,10 @@ contract Distamarkets is IERC1363Spender {
             oldBalance,
             newBalance
         );
-
-        return stake.amount;
     }
 
+    /// @notice Get the stored information of a market
+    /// @param marketId_ Id of the market
     function getMarket(bytes32 marketId_)
         public
         view
@@ -209,8 +243,10 @@ contract Distamarkets is IERC1363Spender {
             MarketState
         )
     {
+        // load market
         Market storage market = _markets[marketId_];
 
+        // ensure the state is correct upon retrieval
         MarketState state = market.state;
         if (state == MarketState.OPEN && block.timestamp < market.closingTime) {
             state = MarketState.ENDED;
@@ -228,6 +264,10 @@ contract Distamarkets is IERC1363Spender {
         );
     }
 
+    /// @notice Set market to the RESOLVED state with the outcome provided
+    /// @dev The final outcome provided will define who wins this bet
+    /// @param marketId_ Id of the market
+    /// @param finalOutcomeId_ 0-based outcome id of the winning outcome
     function resolveMarket(bytes32 marketId_, uint256 finalOutcomeId_)
         external
     {
@@ -262,12 +302,16 @@ contract Distamarkets is IERC1363Spender {
         uint256 reward = _getReward(stake);
     }*/
 
+    /// @notice Calculate the POTENTIAL reward for a stake position in case of a win scenario
+    /// @param stakeId_ Id of the stake
     function calculateReward(uint256 stakeId_) external view returns (uint256) {
         UserStake storage stake = _userStakes[stakeId_ - 1];
 
         return _calculateReward(stake);
     }
 
+    /// @dev Calculates the reward of a stake on a win scenario by dividing the entire pot among the holders
+    /// @param stake_ The UserStake to be calculated from
     function _calculateReward(UserStake storage stake_)
         internal
         view
@@ -286,11 +330,16 @@ contract Distamarkets is IERC1363Spender {
         return finalStake;
     }
 
+    /// @notice Reloads the token balance for this contract
     function updateBalance() public {
         // Retrieve amount of tokens held in contract
         _tokenBalance = _token.balanceOf(address(this));
     }
 
+    /// @notice Get the id of a stake based on the information provided
+    /// @param holder_ the user to retrieve the stake from
+    /// @param marketId_ Id of the market
+    /// @param outcomeId_ Id of the outcome
     function getStakeId(
         address holder_,
         bytes32 marketId_,
@@ -299,6 +348,8 @@ contract Distamarkets is IERC1363Spender {
         return _markets[marketId_].stakes[outcomeId_][holder_];
     }
 
+    /// @notice Get the total stake (pot) of this market
+    /// @param marketId_ Id of the market
     function getMarketTotalStake(bytes32 marketId_)
         public
         view
@@ -307,6 +358,8 @@ contract Distamarkets is IERC1363Spender {
         return _markets[marketId_].totalStake;
     }
 
+    /// @notice Get all stakes associated with a user
+    /// @param address_ Address of user
     function getUserStakes(address address_)
         public
         view
@@ -315,18 +368,24 @@ contract Distamarkets is IERC1363Spender {
         return _stakesByUser[address_];
     }
 
+    /// @notice Get the stake information
+    /// @param stakeId_ Id of the stake
     function getStake(uint256 stakeId_) public view returns (UserStake memory) {
         return _userStakes[stakeId_ - 1];
     }
 
+    /// @notice This function returns the ERC20 token associated upon contract creation
     function token() public view returns (IERC20) {
         return _token;
     }
 
+    /// @notice This function returns the current token balance of this contract
     function tokenBalance() public view returns (uint256) {
         return _tokenBalance;
     }
 
+    /// @notice This function queries if a market is open
+    /// @param marketId_ Id of the market
     function isMarketOpen(bytes32 marketId_) public view returns (bool) {
         Market storage market = _markets[marketId_];
         return
