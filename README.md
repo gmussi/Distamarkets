@@ -51,6 +51,10 @@ We use the `hardhat solhint` plugin to check code styling. It can be run with:
 
 `npm run linter`
 
+Alternatively, to guarantee code is in good condition, we use prettify plugin with:
+
+`npx prettier --write 'contracts/**/*.sol'`
+
 # Deploying
 
 TODO
