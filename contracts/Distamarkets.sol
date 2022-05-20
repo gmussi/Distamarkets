@@ -8,9 +8,20 @@ import "erc-payable-token/contracts/token/ERC1363/IERC1363Spender.sol";
 contract Distamarkets is IERC1363Spender {
     using SafeERC20 for IERC20;
 
-    event MarketCreated(bytes32 indexed marketId_, address indexed oracle_, uint indexed closingTime_, uint numOutcomes_);
-    event StakeChanged(bytes32 indexed marketId, uint256 outcomeId_, address indexed user, uint256 oldBalance, uint256 newBalance);
-    event MarketStateChanged(bytes32 indexed marketId, MarketState indexed oldState, MarketState indexed newState);
+    event MarketCreated(bytes32 indexed marketId_, 
+                        address indexed oracle_, 
+                        uint indexed closingTime_, 
+                        uint numOutcomes_);
+
+    event StakeChanged(bytes32 indexed marketId, 
+                        uint256 outcomeId_, 
+                        address indexed user, 
+                        uint256 oldBalance, 
+                        uint256 newBalance);
+
+    event MarketStateChanged(bytes32 indexed marketId, 
+                        MarketState indexed oldState, 
+                        MarketState indexed newState);
 
     enum MarketState { OPEN, ENDED, RESOLVED, DISPUTED, CLOSED, CANCELED } 
 
@@ -63,7 +74,9 @@ contract Distamarkets is IERC1363Spender {
         emit MarketCreated(marketId_, oracle_, closingTime_, numOutcomes_); 
     }
 
-    function onApprovalReceived(address sender_, uint256 amount_, bytes calldata data_) external override returns (bytes4) {
+    function onApprovalReceived(address sender_, 
+                                uint256 amount_, 
+                                bytes calldata data_) external override returns (bytes4) {
         require(amount_ > 0, "Cannot add 0 stake");
         require(sender_ != address(0), "Invalid sender");
 
@@ -119,11 +132,12 @@ contract Distamarkets is IERC1363Spender {
         return this.onApprovalReceived.selector;
     }
 
-    function removeStake(uint256 stakeId_, uint256 amount_) external openMarket(_userStakes[stakeId_ - 1].marketId) returns (uint256) {
+    function removeStake(uint256 stakeId_, 
+                        uint256 amount_) external returns (uint256) {
         require(amount_ > 0, "Cannot remove 0 stake");
-
         UserStake storage stake = _userStakes[stakeId_ - 1];
 
+        require(isMarketOpen(stake.marketId), "Market must be open");
         Market storage market = _markets[stake.marketId];
 
         require(stake.amount >= amount_, "Amount exceeds current stake");
@@ -147,7 +161,14 @@ contract Distamarkets is IERC1363Spender {
         return stake.amount;
     }
 
-    function getMarket(bytes32 marketId_) public view returns (address, address, uint256, uint256, uint256, uint256, uint256, MarketState) {
+    function getMarket(bytes32 marketId_) public view returns (address, 
+                                                            address, 
+                                                            uint256, 
+                                                            uint256, 
+                                                            uint256, 
+                                                            uint256, 
+                                                            uint256, 
+                                                            MarketState) {
         Market storage market = _markets[marketId_];
 
         MarketState state = market.state;
@@ -155,7 +176,14 @@ contract Distamarkets is IERC1363Spender {
             state = MarketState.ENDED;
         }
 
-        return (market.oracle, market.creator, market.numOutcomes, market.closingTime, market.resolvedAt, market.totalStake, market.finalOutcomeId, market.state);
+        return (market.oracle, 
+                market.creator, 
+                market.numOutcomes, 
+                market.closingTime, 
+                market.resolvedAt, 
+                market.totalStake, 
+                market.finalOutcomeId, 
+                market.state);
     }
 
     function resolveMarket(bytes32 marketId_, uint256 finalOutcomeId_) external {
@@ -236,10 +264,5 @@ contract Distamarkets is IERC1363Spender {
             market.state == MarketState.OPEN
         &&
             block.timestamp < market.closingTime;
-    }
-
-    modifier openMarket(bytes32 marketId_) {
-        require(isMarketOpen(marketId_));
-        _;
     }
 }

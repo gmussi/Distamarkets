@@ -46,6 +46,11 @@ We use the `hardhat waffle` plugin to write tests. Tests can be run using:
 # Coverage
 We use solidity-coverage with `npm run coverage`.
 
+# Linter
+We use the `hardhat solhint` plugin to check code styling. It can be run with:
+
+`npm run linter`
+
 # Deploying
 
 TODO
