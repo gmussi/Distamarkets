@@ -10,7 +10,7 @@ contract Distamarkets is IERC1363Spender {
 
     event MarketCreated(bytes32 indexed marketId_, address indexed oracle_, uint indexed closingTime_, uint numOutcomes_);
     event StakeChanged(bytes32 indexed marketId, uint256 outcomeId_, address indexed user, uint256 oldBalance, uint256 newBalance);
-    event MarketStateChanged(bytes32 indexed marketId, MarketState);
+    event MarketStateChanged(bytes32 indexed marketId, MarketState indexed oldState, MarketState indexed newState);
 
     enum MarketState { OPEN, ENDED, RESOLVED, DISPUTED, CLOSED, CANCELED } 
 
@@ -165,9 +165,14 @@ contract Distamarkets is IERC1363Spender {
         require(market.state == MarketState.OPEN, "Only open markets can be resolved");
         require(block.timestamp > market.closingTime, "Market can only be closed after the specified period");
 
-        market.state = MarketState.RESOLVED;
+        MarketState oldState = market.state;
+        MarketState newState = MarketState.RESOLVED;
+
+        market.state = newState;
         market.resolvedAt = block.timestamp;
         market.finalOutcomeId = finalOutcomeId_;
+
+        emit MarketStateChanged(marketId_, oldState, newState);
     } 
 
     /*function withdrawReward(uint256 stakeId_) external {
