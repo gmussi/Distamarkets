@@ -4,7 +4,7 @@ pragma solidity ^0.8.7;
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "erc-payable-token/contracts/token/ERC1363/IERC1363Spender.sol";
 
-//import "hardhat/console.sol";
+// import "hardhat/console.sol";
 
 /// @title A pot-style betting platform
 /// @author Guilherme Mussi <github.com/gmussi>
@@ -52,6 +52,7 @@ contract Distamarkets is IERC1363Spender {
         uint256 resolvedAt;
         uint256 totalStake;
         uint256 finalOutcomeId;
+        uint256 feeCollected;
         MarketState state;
         // outcome index => user => user stake id
         mapping(uint256 => mapping(address => uint256)) stakes;
@@ -69,7 +70,7 @@ contract Distamarkets is IERC1363Spender {
     uint256 internal _tokenBalance;
 
     // uint256 _depositFee = 0.3 ether; // 0.3% fee
-    // uint256 _withdrawFee = 10 ether; // 10% fee
+    uint256 _withdrawFeeRatio = 10; // 10% fee
 
     // market id => Market
     mapping(bytes32 => Market) _markets;
@@ -188,7 +189,7 @@ contract Distamarkets is IERC1363Spender {
         return this.onApprovalReceived.selector;
     }
 
-    /// @notice Removes a stake (Cashout) from a market. User can remove only part of the stake.
+    /// @notice Removes a stake (minus withdraw fee) from a market. User can remove only part of the stake.
     /// @param stakeId_ The stake id
     /// @param amount_ Amount to be removed
     function removeStake(uint256 stakeId_, uint256 amount_) external {
@@ -204,18 +205,24 @@ contract Distamarkets is IERC1363Spender {
         Market storage market = _markets[stake.marketId];
         require(stake.amount >= amount_, "Amount exceeds current stake");
 
-        // update indexed values
-        market.totalStake = market.totalStake - amount_;
+        // calculate fees
+        uint256 feeAmount = amount_ / _withdrawFeeRatio;
+        uint256 amountMinusFee = amount_ - feeAmount;
+
+        // update indexed values (do NOT remove fee)
+        market.totalStake = market.totalStake - amountMinusFee;
         market.outcomeStakes[stake.outcomeId] =
             market.outcomeStakes[stake.outcomeId] -
-            amount_;
+            amountMinusFee;
+        market.feeCollected = market.feeCollected + feeAmount;
 
+        // update user balance (REMOVE whole amount (with fee) in this case)
         uint256 oldBalance = stake.amount;
         uint256 newBalance = stake.amount - amount_;
         stake.amount = newBalance;
 
-        // transfer the tokens to the user
-        _token.safeTransfer(msg.sender, amount_);
+        // transfer the tokens to the user (MINUS FEE)
+        _token.safeTransfer(msg.sender, amountMinusFee);
         updateBalance();
 
         emit StakeChanged(
@@ -235,6 +242,7 @@ contract Distamarkets is IERC1363Spender {
         returns (
             address,
             address,
+            uint256,
             uint256,
             uint256,
             uint256,
@@ -260,6 +268,7 @@ contract Distamarkets is IERC1363Spender {
             market.resolvedAt,
             market.totalStake,
             market.finalOutcomeId,
+            market.feeCollected,
             market.state
         );
     }

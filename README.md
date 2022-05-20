@@ -15,12 +15,46 @@ The extensions are intended for the token to be used within the Wallfair ecosyst
 
 The contract allows the following:
 
-1. Creating a market by calling the `createMarket` method.
-2. Allow users to stake tokens in an outcome of a market by using `approveAndCall` on the WFAIR token contract.
-3. Allow users to remove stake from an outcome and get their tokens refunded.
-4. Allow market creators and arbiters to cancel and resolve markets.
-5. Allow users to dispute resolve markets before the limit time.
-6. Allow a stake-and-slash voting style for dispute resolution in markets.
+1. Create markets
+2. Place bets (add stake in outcome) in markets
+3. Remove bets from markets early
+4. Cancel markets and refunds
+5. Resolution of markets and rewards distribution
+6. Dispute resolution
+
+## Markets
+
+Markets can be in the following states:
+
+### OPEN
+
+1. Users can add stakes in outcomes
+2. Users can remove stakes from outcomes (with fees)
+3. Creator OR oracle can cancel the market
+
+### ENDED
+Ended is a state of an Open contract whose closing time has passed.
+
+1. Oracle can resolve the market and provide an outcome
+2. Oracle can cancel the market
+
+### RESOLVED
+
+1. Before the specified dispute time has passed, users can create a dispute to the resolution
+2. After the specified dispute time has passed, oracle can close the contract
+
+### DISPUTED
+
+1. Oracle can close or cancel the contract
+
+### CLOSED
+
+1. Users can withdraw winnings
+2. Creator can withdraw the collected fees
+
+### CANCELED
+
+1. Users can withdraw their stakes with collected fees
 
 # Installation
 

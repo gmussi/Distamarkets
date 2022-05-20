@@ -53,7 +53,7 @@ describe("Distamarkets", () => {
             let {marketId, timeLimit} = await createMarket();
             
             // check everything was saved correctly
-            [oracleAddr, creatorAddr, numOutcomes, closingTime, , totalStake, , state]  = await distamarkets.getMarket(marketId);
+            [oracleAddr, creatorAddr, numOutcomes, closingTime, , totalStake, , , state]  = await distamarkets.getMarket(marketId);
 
             expect(oracleAddr).to.equal(oracle.address);
             expect(creatorAddr).to.equal(creator.address);
@@ -109,24 +109,29 @@ describe("Distamarkets", () => {
             // create market
             let { marketId } = await createMarket();
 
-            // stake and get stakeid
-            await token.connect(trader1)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("50"), ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 0]));
+            // stake 500 and get stakeid
+            await token.connect(trader1)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("500"), ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 0]));
             let addr1StakeId = await distamarkets.getStakeId(trader1.address, marketId, 0);
 
             // track user current balance
             let initialBalance = await token.balanceOf(trader1.address);
 
-            // remove part of stake
-            await distamarkets.connect(trader1).removeStake(addr1StakeId, ethers.utils.parseEther("10"));
+            // remove 100 from the stake
+            await distamarkets.connect(trader1).removeStake(addr1StakeId, ethers.utils.parseEther("100"));
 
-            // ensure stake is tracked correctly
+            // ensure stake is tracked correctly (considering fees)
             let addr1Stake = await distamarkets.getStake(addr1StakeId);
-            expect(addr1Stake.amount).to.equal(ethers.utils.parseEther("40"));
+            expect(addr1Stake.amount).to.equal(ethers.utils.parseEther("400"));
             
             // ensure user received funds
             let finalBalance = await token.balanceOf(trader1.address);
 
-            expect(finalBalance.sub(initialBalance)).to.be.at.least(ethers.utils.parseEther("9"));
+            // Should be the amount withdrawn minus 10% fee
+            expect(finalBalance.sub(initialBalance)).to.equal(ethers.utils.parseEther("90"));
+            
+            // check tracking of fee
+            let [, , , , , , , feeCollected, _] = await distamarkets.getMarket(marketId);
+            expect(feeCollected).to.equal(ethers.utils.parseEther("10"));
 
         });
         
@@ -301,7 +306,7 @@ describe("Distamarkets", () => {
 
             await distamarkets.connect(oracle).resolveMarket(marketId, 0);
 
-            let [, , , , , , , state] = await distamarkets.getMarket(marketId);
+            let [, , , , , , , , state] = await distamarkets.getMarket(marketId);
             expect(state).to.equal(2);
         });
     });
