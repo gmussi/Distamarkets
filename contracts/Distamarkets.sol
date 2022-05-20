@@ -3,7 +3,7 @@ pragma solidity ^0.8.7;
 
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "erc-payable-token/contracts/token/ERC1363/IERC1363Spender.sol";
-import "hardhat/console.sol";
+//import "hardhat/console.sol";
 
 contract Distamarkets is IERC1363Spender {
     using SafeERC20 for IERC20;
@@ -97,9 +97,6 @@ contract Distamarkets is IERC1363Spender {
 
             _stakesByUser[sender_].push(stakeId);
             market.stakes[outcomeId_][sender_] = stakeId;
-
-            console.log("Created stake id ", stakeId);
-            console.log("And saved ", market.stakes[outcomeId_][sender_]);
         } else {
             // loading existing stake
             stake = _userStakes[stakeId - 1];
@@ -205,7 +202,6 @@ contract Distamarkets is IERC1363Spender {
     }
 
     function getStakeId(address holder_, bytes32 marketId_, uint256 outcomeId_) public view returns (uint256) {
-        console.log("Found stake id ", _markets[marketId_].stakes[outcomeId_][holder_]);
         return _markets[marketId_].stakes[outcomeId_][holder_];
     }
 
@@ -218,7 +214,6 @@ contract Distamarkets is IERC1363Spender {
     }
 
     function getStake(uint256 stakeId_) public view returns(UserStake memory) {
-        console.log("Getting stake with id ", stakeId_);
         return _userStakes[stakeId_ - 1];
     }
 
