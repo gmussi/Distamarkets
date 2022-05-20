@@ -1,5 +1,14 @@
 const { expect } = require("chai");
 
+const MarketState = {
+    OPEN: 0,
+    ENDED: 1,
+    RESOLVED: 2,
+    DISPUTED: 3,
+    CLOSED: 4,
+    CANCELLED: 5
+}
+
 let Distamarkets, distamarkets, owner, creator, oracle, trader1, trader2, trader3, trader4, Token, token;
 
 // help functions
@@ -60,7 +69,7 @@ describe("Distamarkets", () => {
             expect(numOutcomes).to.equal(2);
             expect(closingTime).to.equal(timeLimit);
             expect(totalStake).to.equal(0);
-            expect(state).to.equal(0);
+            expect(state).to.equal(MarketState.OPEN);
         });
     });
 
@@ -264,7 +273,7 @@ describe("Distamarkets", () => {
         });
     });
 
-    describe("State transitions", async () => {
+    describe("Resolving markets", async () => {
         it ("Should not resolve market before the time is over", async () => {
             // creates 2 markets
             let { marketId } = await createMarket();
@@ -297,7 +306,7 @@ describe("Distamarkets", () => {
         });
 
         it ("Should resolve market when time is over", async() => {
-            // creates 2 markets
+            // creates a market
             let { marketId } = await createMarket();
 
             // advance 1 hour
@@ -307,8 +316,63 @@ describe("Distamarkets", () => {
             await distamarkets.connect(oracle).resolveMarket(marketId, 0);
 
             let [, , , , , , , , state] = await distamarkets.getMarket(marketId);
-            expect(state).to.equal(2);
+            expect(state).to.equal(MarketState.RESOLVED);
         });
+    });
+
+    describe("Canceling market", async() => {
+        it ("Should allow oracle to cancel an open market", async () => {
+            // creates a market
+            let { marketId } = await createMarket();
+
+            // attempting to cancel with non-creator and non-oracle should fail
+            await expect(distamarkets.connect(trader1).cancelMarket(marketId))
+                .to.be.revertedWith("Only creator OR oracle can cancel OPEN market");
+
+            await distamarkets.connect(oracle).cancelMarket(marketId);
+
+            let [, , , , , , , , state] = await distamarkets.getMarket(marketId);
+            expect(state).to.equal(MarketState.CANCELLED);
+        });
+        it ("Should allow creator to cancel an open market", async () => {
+            // creates a market
+            let { marketId } = await createMarket();
+
+            // attempting to cancel with non-creator and non-oracle should fail
+            await expect(distamarkets.connect(trader1).cancelMarket(marketId))
+                .to.be.revertedWith("Only creator OR oracle can cancel OPEN market");
+
+            await distamarkets.connect(creator).cancelMarket(marketId);
+
+            let [, , , , , , , , state] = await distamarkets.getMarket(marketId);
+            expect(state).to.equal(MarketState.CANCELLED);
+        });
+        it ("Cannot cancel already canceled market", async () => {
+            // creates a market
+            let { marketId } = await createMarket();
+
+            await distamarkets.connect(oracle).cancelMarket(marketId);
+
+            await expect(distamarkets.connect(oracle).cancelMarket(marketId))
+                .to.be.revertedWith("Market already CANCELED");
+        });
+        it ("Resolved markets cannot be canceled", async () => {
+            // creates a market
+            let { marketId } = await createMarket();
+
+            // advance 1 hour
+            await ethers.provider.send('evm_increaseTime', [3601]);
+            await ethers.provider.send('evm_mine');
+
+            await distamarkets.connect(oracle).resolveMarket(marketId, 0);
+
+            await expect(distamarkets.connect(oracle).cancelMarket(marketId))
+                .to.be.revertedWith("Resolved markets cannot be canceled without dispute");
+        });
+        it ("Users can retrieve stake and collected fees from canceled events")
+        it ("Closed markets cannot be canceled");
+        it ("Only oracle can cancel ENDED markets");
+        it ("Only oracle can cancel DISPUTED markets");
     });
 
     describe("Withdraw rewards", async() => {

@@ -171,8 +171,7 @@ contract Distamarkets is IERC1363Spender {
 
         // update stake amount
         uint256 oldBalance = stake.amount;
-        uint256 newBalance = stake.amount + amount_;
-        stake.amount = newBalance;
+        stake.amount = stake.amount + amount_;
 
         // make the approved token transfer and update balance
         _token.safeTransferFrom(sender_, address(this), amount_);
@@ -183,7 +182,7 @@ contract Distamarkets is IERC1363Spender {
             outcomeId_,
             sender_,
             oldBalance,
-            newBalance
+            stake.amount
         );
 
         return this.onApprovalReceived.selector;
@@ -218,8 +217,7 @@ contract Distamarkets is IERC1363Spender {
 
         // update user balance (REMOVE whole amount (with fee) in this case)
         uint256 oldBalance = stake.amount;
-        uint256 newBalance = stake.amount - amount_;
-        stake.amount = newBalance;
+        stake.amount = stake.amount - amount_;
 
         // transfer the tokens to the user (MINUS FEE)
         _token.safeTransfer(msg.sender, amountMinusFee);
@@ -230,7 +228,7 @@ contract Distamarkets is IERC1363Spender {
             stake.outcomeId,
             msg.sender,
             oldBalance,
-            newBalance
+            stake.amount
         );
     }
 
@@ -274,7 +272,7 @@ contract Distamarkets is IERC1363Spender {
     }
 
     /// @notice Set market to the RESOLVED state with the outcome provided
-    /// @dev The final outcome provided will define who wins this bet
+    /// @dev The final outcome provided here will define who wins this bet
     /// @param marketId_ Id of the market
     /// @param finalOutcomeId_ 0-based outcome id of the winning outcome
     function resolveMarket(bytes32 marketId_, uint256 finalOutcomeId_)
@@ -296,13 +294,53 @@ contract Distamarkets is IERC1363Spender {
         );
 
         MarketState oldState = market.state;
-        MarketState newState = MarketState.RESOLVED;
 
-        market.state = newState;
+        market.state = MarketState.RESOLVED;
         market.resolvedAt = block.timestamp;
         market.finalOutcomeId = finalOutcomeId_;
 
-        emit MarketStateChanged(marketId_, oldState, newState);
+        emit MarketStateChanged(marketId_, oldState, MarketState.RESOLVED);
+    }
+
+    /// @notice This function sets the market as CANCELED
+    /// @dev Check README.md for a breakdown of the rules
+    /// @param marketId_ Id of the market
+    function cancelMarket(bytes32 marketId_) external {
+        Market storage market = _markets[marketId_];
+
+        // validate the various rules for cancelation
+        require(
+            market.state != MarketState.CANCELED,
+            "Market already CANCELED"
+        );
+        require(
+            market.state != MarketState.CLOSED,
+            "CLOSED markets can't be canceled anymore"
+        );
+        require(
+            market.state != MarketState.OPEN ||
+                (msg.sender == market.creator || msg.sender == market.oracle),
+            "Only creator OR oracle can cancel OPEN market"
+        );
+        require(
+            market.state != MarketState.ENDED || msg.sender == market.oracle,
+            "Only oracle can cancel ENDED markets"
+        );
+        require(
+            market.state != MarketState.DISPUTED || msg.sender == market.oracle,
+            "Only oracle can cancel DISPUTED markets"
+        );
+        require(
+            market.state != MarketState.RESOLVED,
+            "Resolved markets cannot be canceled without dispute"
+        );
+
+        // set new state as CANCELED
+        MarketState oldState = market.state;
+        MarketState newState = MarketState.CANCELED;
+        market.state = newState;
+
+        emit MarketStateChanged(marketId_, oldState, MarketState.CANCELED);
     }
 
     /*function withdrawReward(uint256 stakeId_) external {

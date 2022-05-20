@@ -28,15 +28,15 @@ Markets can be in the following states:
 
 ### OPEN
 
-1. Users can add stakes in outcomes
-2. Users can remove stakes from outcomes (with fees)
-3. Creator OR oracle can cancel the market
+1. Users can add stakes in outcomes ✔
+2. Users can remove stakes from outcomes (with fees) ✔
+3. Creator OR oracle can cancel the market ✔
 
 ### ENDED
 Ended is a state of an Open contract whose closing time has passed.
 
-1. Oracle can resolve the market and provide an outcome
-2. Oracle can cancel the market
+1. Oracle can resolve the market and provide an outcome ✔
+2. Oracle can cancel the market ✔
 
 ### RESOLVED
 
@@ -45,7 +45,8 @@ Ended is a state of an Open contract whose closing time has passed.
 
 ### DISPUTED
 
-1. Oracle can close or cancel the contract
+1. Oracle can close the market
+2. Oracle can cancel the market ✔
 
 ### CLOSED
 
