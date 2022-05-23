@@ -296,12 +296,13 @@ contract Distamarkets is IERC1363Spender {
             "Only the oracle can resolve the market"
         );
         require(
-            oldState == MarketState.OPEN || oldState == MarketState.ENDED,
-            "Only open markets can be resolved"
+            oldState == MarketState.ENDED,
+            "Only ended markets can be resolved"
         );
+
         require(
             block.timestamp > market.closingTime,
-            "Market can only be closed after the specified period"
+            "Dispute period not over"
         );
 
         market.state = MarketState.RESOLVED;
@@ -348,11 +349,31 @@ contract Distamarkets is IERC1363Spender {
         emit MarketStateChanged(marketId_, oldState, MarketState.CANCELED);
     }
 
-    /*function withdrawReward(uint256 stakeId_) external {
-        UserStake storage stake = _userStakes[stakeId_ - 1];
+    /// @notice This function allows users to withdraw their rewards when event is closed
+    /// @dev TODO Update and decrease the outcome stakes in a balanced way
+    /// @param marketId_ Id of the market
+    /// @param outcomeId_ Id of the outcome
+    function withdrawReward(
+        bytes32 marketId_,
+        uint256 outcomeId_
+    ) external {
+        require(_getMarketState(marketId_) == MarketState.CLOSED, "Market must be closed");
 
-        uint256 reward = _getReward(stake);
-    }*/
+        uint256 balance = _markets[marketId_].stakes[outcomeId_][msg.sender];
+        uint256 balancePlusReward = balance + _calculateReward(marketId_, outcomeId_, msg.sender);
+
+        require(balancePlusReward > 0, "No reward to withdraw");
+
+        // transfer reward
+        _token.safeTransfer(msg.sender, balancePlusReward);
+
+        // update values
+        _markets[marketId_].stakes[outcomeId_][msg.sender] = 0;
+        _markets[marketId_].totalStake = _markets[marketId_].totalStake - balancePlusReward;
+
+        // emit event
+        emit StakeChanged(marketId_, outcomeId_, msg.sender, balance, 0);
+    }
 
     /// @notice Calculate the POTENTIAL reward for a stake position in case of a win scenario
     /// @param marketId_ Id of the stake

@@ -249,17 +249,17 @@ describe("Distamarkets", () => {
             // creates 2 markets
             let { marketId } = await createMarket();
 
-            // advance 1 hour
+            // advance less than 1 hour
             await ethers.provider.send('evm_increaseTime', [1000]);
             await ethers.provider.send('evm_mine');
 
             // trying to resolve should end in failure
-            await expect(distamarkets.connect(oracle).resolveMarket(marketId, 0)).to.be.revertedWith("Market can only be closed after the specified period");
+            await expect(distamarkets.connect(oracle).resolveMarket(marketId, 0)).to.be.revertedWith("Only ended markets can be resolved");
         });
 
         it ("Should allow only oracle to resolve");
 
-        it ("Should allow only open/ended markets to be resolved", async () => {
+        it ("Should allow only ended markets to be resolved", async () => {
             // creates 2 markets
             let { marketId } = await createMarket();
 
@@ -272,7 +272,7 @@ describe("Distamarkets", () => {
 
             // resolve second time error
             await expect(distamarkets.connect(oracle).resolveMarket(marketId, 0))
-            .to.be.revertedWith("Only open markets can be resolved");
+            .to.be.revertedWith("Only ended markets can be resolved");
         });
 
         it ("Should resolve market when time is over", async() => {
@@ -391,11 +391,60 @@ describe("Distamarkets", () => {
         });
 
         it ("Should retrieve rewards", async () => {
+            let { marketId } = await createMarket();
 
+            let initialBalance = await token.balanceOf(trader1.address);
+
+            // add multiple stakes to the outcomes
+            await token.connect(trader1)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("250"), ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 0]));
+            await token.connect(trader2)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("300"), ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 0]));
+            await token.connect(trader3)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("90"),  ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 1]));
+            await token.connect(trader4)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("20"),  ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 1]));
+
+             // wait for the closing time
+             await ethers.provider.send('evm_increaseTime', [3601]);
+             await ethers.provider.send('evm_mine');
+
+            // resolve the market
+            await distamarkets.connect(oracle).resolveMarket(marketId, 0);
+
+            // wait for the dispute period
+            await ethers.provider.send('evm_increaseTime', [86401]);
+            await ethers.provider.send('evm_mine');
+
+            // get the reward
+            await distamarkets.connect(trader1).withdrawReward(marketId, 0);
+
+            // check balance is ok
+            let finalBalance = await token.balanceOf(trader1.address);
+
+            expect(finalBalance.sub(initialBalance)).to.equal(ethers.utils.parseEther("50"));
         });
 
-        it ("Should only retrieve when market is closed", async () => {
+        it ("Should only retrieve rewards when market is closed", async () => {
+            let { marketId } = await createMarket();
+
+            // add multiple stakes to the outcomes
+            await token.connect(trader1)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("250"), ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 0]));
+            await token.connect(trader2)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("300"), ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 0]));
+
+             // wait for the closing time
+             await ethers.provider.send('evm_increaseTime', [3601]);
+             await ethers.provider.send('evm_mine');
+
+             // resolve the market
+            await distamarkets.connect(oracle).resolveMarket(marketId, 0);
+
+            await expect(distamarkets.connect(trader1).withdrawReward(marketId, 0))
+                .to.be.revertedWith("Market must be closed");
 
         });
+    });
+
+    describe("Disputes", async () => {
+        it ("Allow to dispute a market during dispute period");
+        it ("Disputed market returns correct state");
+        it ("Cannot dispute after dispute period");
+        it ("Can solve a dispute");
     });
 });
