@@ -40,22 +40,21 @@ Ended is a state of an Open contract whose closing time has passed.
 
 ### RESOLVED
 
-1. Before the specified dispute time has passed, users can create a dispute to the resolution
-2. After the specified dispute time has passed, oracle can close the contract
+1. Before the specified dispute time has passed, users can create a dispute to the resolution ✔
 
 ### DISPUTED
 
-1. Oracle can close the market
+1. Oracle can close the market ✔
 2. Oracle can cancel the market ✔
 
 ### CLOSED
 
-1. Users can withdraw winnings
-2. Creator can withdraw the collected fees
+1. Users can withdraw winnings ✔
+2. Creator can withdraw the collected fees 
 
 ### CANCELED
 
-1. Users can withdraw their stakes with collected fees
+1. Users can withdraw their stakes with collected fees ✔
 
 # Installation
 

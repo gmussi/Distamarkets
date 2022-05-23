@@ -10,19 +10,21 @@ import "hardhat/console.sol";
 /// @author Guilherme Mussi <github.com/gmussi>
 /// @notice Contract current in MVP stage, being developed in increment steps towards Wallfair Whitepaper
 /// @dev On every change, the entire contract should have full coverage and pass linter checks
+/// @dev TODO check all methods for require msg.sender == oracle
+/// @dev TODO validate marketId in all methods
 contract Distamarkets is IERC1363Spender {
     using SafeERC20 for IERC20;
 
     event MarketCreated(
-        bytes32 indexed marketId_,
-        address indexed oracle_,
-        uint256 indexed closingTime_,
-        uint256 numOutcomes_
+        bytes32 indexed marketId,
+        address indexed oracle,
+        uint256 indexed closingTime,
+        uint256 numOutcomes
     );
 
     event StakeChanged(
         bytes32 indexed marketId,
-        uint256 outcomeId_,
+        uint256 outcomeId,
         address indexed user,
         uint256 oldBalance,
         uint256 newBalance
@@ -281,6 +283,29 @@ contract Distamarkets is IERC1363Spender {
         );
     }
 
+    /// @notice Allows any user with a stake to dispute the market
+    /// @dev in order to save gas fees, user should specify also the outcome
+    /// @param marketId_ Id of the market
+    /// @param outcomeId_ Id of the outcome
+    function disputeMarket(bytes32 marketId_, uint256 outcomeId_) external {
+        require(
+            _markets[marketId_].stakes[outcomeId_][msg.sender] > 0,
+            "No stake for dispute"
+        );
+        require(
+            _getMarketState(marketId_) == MarketState.RESOLVED,
+            "Only resolved market can be disputed"
+        );
+
+        emit MarketStateChanged(
+            marketId_,
+            _markets[marketId_].state,
+            MarketState.DISPUTED
+        );
+
+        _markets[marketId_].state = MarketState.DISPUTED;
+    }
+
     /// @notice Set market to the RESOLVED state with the outcome provided
     /// @dev The final outcome provided here will define who wins this bet
     /// @param marketId_ Id of the market
@@ -312,7 +337,27 @@ contract Distamarkets is IERC1363Spender {
         emit MarketStateChanged(marketId_, oldState, MarketState.RESOLVED);
     }
 
-    /// @notice This function sets the market as CANCELED
+    /// @notice This function allows the oracle to close a disputed market
+    /// @param marketId_ Id of the market
+    /// @param finalOutcomeId_ Final outcome, undisputable
+    function closeMarket(bytes32 marketId_, uint256 finalOutcomeId_) external {
+        require(
+            _getMarketState(marketId_) == MarketState.DISPUTED,
+            "Market not in dispute"
+        );
+        require(msg.sender == _markets[marketId_].oracle, "Sender not oracle");
+
+        emit MarketStateChanged(
+            marketId_,
+            MarketState.DISPUTED,
+            MarketState.CLOSED
+        );
+
+        _markets[marketId_].state = MarketState.CLOSED;
+        _markets[marketId_].finalOutcomeId = finalOutcomeId_;
+    }
+
+    /// @notice This fu_nction sets the market as CANCELED
     /// @dev Check README.md for a breakdown of the rules
     /// @param marketId_ Id of the market
     function cancelMarket(bytes32 marketId_) external {
@@ -353,14 +398,15 @@ contract Distamarkets is IERC1363Spender {
     /// @dev TODO Update and decrease the outcome stakes in a balanced way
     /// @param marketId_ Id of the market
     /// @param outcomeId_ Id of the outcome
-    function withdrawReward(
-        bytes32 marketId_,
-        uint256 outcomeId_
-    ) external {
-        require(_getMarketState(marketId_) == MarketState.CLOSED, "Market must be closed");
+    function withdrawReward(bytes32 marketId_, uint256 outcomeId_) external {
+        require(
+            _getMarketState(marketId_) == MarketState.CLOSED,
+            "Market must be closed"
+        );
 
         uint256 balance = _markets[marketId_].stakes[outcomeId_][msg.sender];
-        uint256 balancePlusReward = balance + _calculateReward(marketId_, outcomeId_, msg.sender);
+        uint256 balancePlusReward = balance +
+            _calculateReward(marketId_, outcomeId_, msg.sender);
 
         require(balancePlusReward > 0, "No reward to withdraw");
 
@@ -369,7 +415,9 @@ contract Distamarkets is IERC1363Spender {
 
         // update values
         _markets[marketId_].stakes[outcomeId_][msg.sender] = 0;
-        _markets[marketId_].totalStake = _markets[marketId_].totalStake - balancePlusReward;
+        _markets[marketId_].totalStake =
+            _markets[marketId_].totalStake -
+            balancePlusReward;
 
         // emit event
         emit StakeChanged(marketId_, outcomeId_, msg.sender, balance, 0);
