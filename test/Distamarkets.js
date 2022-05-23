@@ -369,7 +369,36 @@ describe("Distamarkets", () => {
             await expect(distamarkets.connect(oracle).cancelMarket(marketId))
                 .to.be.revertedWith("Resolved markets cannot be canceled without dispute");
         });
-        it ("Users can retrieve stake and collected fees from canceled events")
+        it ("Users can retrieve stake and collected fees from canceled events", async () => {
+            // create market
+            let { marketId } = await createMarket();
+
+            let initialBalance = await token.balanceOf(trader1.address);
+
+            // add stakes and get ids
+            await token.connect(trader1)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("1000"), ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 0]));
+            await token.connect(trader2)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("500"), ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 0]));
+            await token.connect(trader3)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("500"), ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 1]));
+            let addr1StakeId = await distamarkets.getStakeId(trader1.address, marketId, 0);
+            let addr3StakeId = await distamarkets.getStakeId(trader3.address, marketId, 1);
+
+            // trader 3 cancels the stake
+            await distamarkets.connect(trader3).removeStake(addr3StakeId, ethers.utils.parseEther("500"));
+
+            // cancel the market
+            await distamarkets.connect(oracle).cancelMarket(marketId);
+
+            // ensure user received funds
+            await distamarkets.connect(trader1).refund(addr1StakeId);
+            let finalBalance = await token.balanceOf(trader1.address);
+
+            // Should be the amount withdrawn minus 10% fee
+            expect(finalBalance.sub(initialBalance)).to.equal(ethers.utils.parseEther("32"));
+            
+            // there should still be 18 fee left
+            let [, , , , , , , feeCollected, _] = await distamarkets.getMarket(marketId);
+            expect(feeCollected).to.equal(ethers.utils.parseEther("18"));
+        });
         it ("Closed markets cannot be canceled");
         it ("Only oracle can cancel ENDED markets");
         it ("Only oracle can cancel DISPUTED markets");

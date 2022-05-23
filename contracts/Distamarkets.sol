@@ -4,7 +4,7 @@ pragma solidity ^0.8.7;
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "erc-payable-token/contracts/token/ERC1363/IERC1363Spender.sol";
 
-// import "hardhat/console.sol";
+import "hardhat/console.sol";
 
 /// @title A pot-style betting platform
 /// @author Guilherme Mussi <github.com/gmussi>
@@ -161,6 +161,7 @@ contract Distamarkets is IERC1363Spender {
             stake = _userStakes[stakeId - 1];
             stake.marketId = marketId_;
             stake.outcomeId = outcomeId_;
+            stake.user = sender_;
 
             _stakesByUser[sender_].push(stakeId);
             market.stakes[outcomeId_][sender_] = stakeId;
@@ -188,8 +189,36 @@ contract Distamarkets is IERC1363Spender {
         return this.onApprovalReceived.selector;
     }
 
+    /// @notice Refund the stake from a canceled event
+    /// @param stakeId_ Id of the stake
+    function refund(uint256 stakeId_) external {
+        // load stake and market
+        UserStake storage stake = _userStakes[stakeId_ - 1];
+        Market storage market = _markets[stake.marketId];
+
+        require(market.state == MarketState.CANCELED, "Market must be canceled");
+
+        console.log("market.feeCollected ", market.feeCollected);
+        console.log("market.totalStake ", market.totalStake);
+        console.log("deno", (market.feeCollected * 1000 / market.totalStake));
+
+        // calculate reward to be given
+        uint256 feeReward = (stake.amount * (market.feeCollected * 1000 / market.totalStake)) / 1000;
+
+        // transfer amount and extra reward to user
+        _token.safeTransfer(msg.sender, stake.amount + feeReward);
+
+        // update amounts
+        market.feeCollected = market.feeCollected - feeReward;
+        market.totalStake = market.totalStake - (stake.amount + feeReward);
+        market.outcomeStakes[stake.outcomeId] = market.outcomeStakes[stake.outcomeId] - stake.amount;
+        stake.amount = 0;
+
+        emit StakeChanged(stake.marketId, stake.outcomeId, msg.sender, stake.amount, 0);
+    }
+
     /// @notice Removes a stake (minus withdraw fee) from a market. User can remove only part of the stake.
-    /// @param stakeId_ The stake id
+    /// @param stakeId_ Id of the stake
     /// @param amount_ Amount to be removed
     function removeStake(uint256 stakeId_, uint256 amount_) external {
         require(amount_ > 0, "Cannot remove 0 stake");
@@ -199,6 +228,7 @@ contract Distamarkets is IERC1363Spender {
 
         // cannot remove stake from closed market
         require(isMarketOpen(stake.marketId), "Market must be open");
+        require(msg.sender == stake.user, "Cant remove stake of others");
 
         // users cannot remove more stake then they have
         Market storage market = _markets[stake.marketId];
