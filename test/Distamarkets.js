@@ -290,7 +290,7 @@ describe("Distamarkets", () => {
 
         });
 
-        it ("Should allow only open markets to be resolved", async () => {
+        it ("Should allow only open/ended markets to be resolved", async () => {
             // creates 2 markets
             let { marketId } = await createMarket();
 
@@ -302,7 +302,8 @@ describe("Distamarkets", () => {
             await distamarkets.connect(oracle).resolveMarket(marketId, 0);
 
             // resolve second time error
-            
+            await expect(distamarkets.connect(oracle).resolveMarket(marketId, 0))
+            .to.be.revertedWith("Only open markets can be resolved");
         });
 
         it ("Should resolve market when time is over", async() => {

@@ -49,7 +49,7 @@ contract Distamarkets is IERC1363Spender {
         address creator;
         uint256 numOutcomes;
         uint256 closingTime;
-        uint256 resolvedAt;
+        uint256 disputeEnd;
         uint256 totalStake;
         uint256 finalOutcomeId;
         uint256 feeCollected;
@@ -69,8 +69,9 @@ contract Distamarkets is IERC1363Spender {
     IERC20 internal immutable _token;
     uint256 internal _tokenBalance;
 
-    // uint256 _depositFee = 0.3 ether; // 0.3% fee
+    // Contract settings (might be updateable later on)
     uint256 _withdrawFeeRatio = 10; // 10% fee
+    uint256 _disputeTime = 86400; // 24 hours
 
     // market id => Market
     mapping(bytes32 => Market) _markets;
@@ -142,7 +143,7 @@ contract Distamarkets is IERC1363Spender {
             market.oracle != address(0),
             "Market not found or not initialized"
         );
-        require(isMarketOpen(marketId_), "Market is not open");
+        require(_getMarketState(marketId_) == MarketState.OPEN, "Market is not open");
 
         // update indexed values
         market.totalStake = market.totalStake + amount_;
@@ -170,21 +171,20 @@ contract Distamarkets is IERC1363Spender {
             stake = _userStakes[stakeId - 1];
         }
 
+        emit StakeChanged(
+            marketId_,
+            outcomeId_,
+            sender_,
+            stake.amount,
+            stake.amount + amount_
+        );
+
         // update stake amount
-        uint256 oldBalance = stake.amount;
         stake.amount = stake.amount + amount_;
 
         // make the approved token transfer and update balance
         _token.safeTransferFrom(sender_, address(this), amount_);
         updateBalance();
-
-        emit StakeChanged(
-            marketId_,
-            outcomeId_,
-            sender_,
-            oldBalance,
-            stake.amount
-        );
 
         return this.onApprovalReceived.selector;
     }
@@ -196,11 +196,8 @@ contract Distamarkets is IERC1363Spender {
         UserStake storage stake = _userStakes[stakeId_ - 1];
         Market storage market = _markets[stake.marketId];
 
+        // No need to use _calculateState here
         require(market.state == MarketState.CANCELED, "Market must be canceled");
-
-        console.log("market.feeCollected ", market.feeCollected);
-        console.log("market.totalStake ", market.totalStake);
-        console.log("deno", (market.feeCollected * 1000 / market.totalStake));
 
         // calculate reward to be given
         uint256 feeReward = (stake.amount * (market.feeCollected * 1000 / market.totalStake)) / 1000;
@@ -225,13 +222,13 @@ contract Distamarkets is IERC1363Spender {
 
         // load stake
         UserStake storage stake = _userStakes[stakeId_ - 1];
+        Market storage market = _markets[stake.marketId];
 
         // cannot remove stake from closed market
-        require(isMarketOpen(stake.marketId), "Market must be open");
+        require(_getMarketState(stake.marketId) == MarketState.OPEN, "Market must be open");
         require(msg.sender == stake.user, "Cant remove stake of others");
 
         // users cannot remove more stake then they have
-        Market storage market = _markets[stake.marketId];
         require(stake.amount >= amount_, "Amount exceeds current stake");
 
         // calculate fees
@@ -276,28 +273,22 @@ contract Distamarkets is IERC1363Spender {
             uint256,
             uint256,
             uint256,
-            MarketState
+            MarketState state
         )
     {
         // load market
         Market storage market = _markets[marketId_];
-
-        // ensure the state is correct upon retrieval
-        MarketState state = market.state;
-        if (state == MarketState.OPEN && block.timestamp < market.closingTime) {
-            state = MarketState.ENDED;
-        }
-
+        state = _getMarketState(marketId_);
         return (
             market.oracle,
             market.creator,
             market.numOutcomes,
             market.closingTime,
-            market.resolvedAt,
+            market.disputeEnd,
             market.totalStake,
             market.finalOutcomeId,
             market.feeCollected,
-            market.state
+            state
         );
     }
 
@@ -309,13 +300,14 @@ contract Distamarkets is IERC1363Spender {
         external
     {
         Market storage market = _markets[marketId_];
+        MarketState oldState = _getMarketState(marketId_);
 
         require(
             msg.sender == market.oracle,
             "Only the oracle can resolve the market"
         );
         require(
-            market.state == MarketState.OPEN,
+            oldState == MarketState.OPEN || oldState == MarketState.ENDED,
             "Only open markets can be resolved"
         );
         require(
@@ -323,10 +315,9 @@ contract Distamarkets is IERC1363Spender {
             "Market can only be closed after the specified period"
         );
 
-        MarketState oldState = market.state;
 
         market.state = MarketState.RESOLVED;
-        market.resolvedAt = block.timestamp;
+        market.disputeEnd = block.timestamp + _disputeTime;
         market.finalOutcomeId = finalOutcomeId_;
 
         emit MarketStateChanged(marketId_, oldState, MarketState.RESOLVED);
@@ -336,39 +327,38 @@ contract Distamarkets is IERC1363Spender {
     /// @dev Check README.md for a breakdown of the rules
     /// @param marketId_ Id of the market
     function cancelMarket(bytes32 marketId_) external {
+        MarketState oldState = _getMarketState(marketId_);
         Market storage market = _markets[marketId_];
 
         // validate the various rules for cancelation
         require(
-            market.state != MarketState.CANCELED,
+            oldState != MarketState.CANCELED,
             "Market already CANCELED"
         );
         require(
-            market.state != MarketState.CLOSED,
+            oldState != MarketState.CLOSED,
             "CLOSED markets can't be canceled anymore"
         );
         require(
-            market.state != MarketState.OPEN ||
+            oldState != MarketState.OPEN ||
                 (msg.sender == market.creator || msg.sender == market.oracle),
             "Only creator OR oracle can cancel OPEN market"
         );
         require(
-            market.state != MarketState.ENDED || msg.sender == market.oracle,
+            oldState != MarketState.ENDED || msg.sender == market.oracle,
             "Only oracle can cancel ENDED markets"
         );
         require(
-            market.state != MarketState.DISPUTED || msg.sender == market.oracle,
+            oldState != MarketState.DISPUTED || msg.sender == market.oracle,
             "Only oracle can cancel DISPUTED markets"
         );
         require(
-            market.state != MarketState.RESOLVED,
+            oldState != MarketState.RESOLVED,
             "Resolved markets cannot be canceled without dispute"
         );
 
         // set new state as CANCELED
-        MarketState oldState = market.state;
-        MarketState newState = MarketState.CANCELED;
-        market.state = newState;
+        market.state = MarketState.CANCELED;
 
         emit MarketStateChanged(marketId_, oldState, MarketState.CANCELED);
     }
@@ -382,29 +372,20 @@ contract Distamarkets is IERC1363Spender {
     /// @notice Calculate the POTENTIAL reward for a stake position in case of a win scenario
     /// @param stakeId_ Id of the stake
     function calculateReward(uint256 stakeId_) external view returns (uint256) {
-        UserStake storage stake = _userStakes[stakeId_ - 1];
-
-        return _calculateReward(stake);
+        return _calculateReward(stakeId_);
     }
 
     /// @dev Calculates the reward of a stake on a win scenario by dividing the entire pot among the holders
-    /// @param stake_ The UserStake to be calculated from
-    function _calculateReward(UserStake storage stake_)
+    /// @param stakeId_ Id of the stake
+    function _calculateReward(uint256 stakeId_)
         internal
         view
-        returns (uint256)
+        returns (uint256 reward)
     {
-        Market storage market = _markets[stake_.marketId];
+        UserStake storage stake = _userStakes[stakeId_ - 1];
+        uint256 outcomeStake = _markets[stake.marketId].outcomeStakes[stake.outcomeId];
 
-        uint256 totalStake = market.totalStake;
-
-        uint256 outcomeStake = market.outcomeStakes[stake_.outcomeId];
-
-        uint256 rewardBucket = totalStake - outcomeStake;
-
-        uint256 finalStake = (stake_.amount * rewardBucket) / outcomeStake;
-
-        return finalStake;
+        reward = (stake.amount * (_markets[stake.marketId].totalStake - outcomeStake)) / outcomeStake;
     }
 
     /// @notice Reloads the token balance for this contract
@@ -461,12 +442,16 @@ contract Distamarkets is IERC1363Spender {
         return _tokenBalance;
     }
 
-    /// @notice This function queries if a market is open
+    /// @notice This function returns the calculated market state
     /// @param marketId_ Id of the market
-    function isMarketOpen(bytes32 marketId_) public view returns (bool) {
+    function _getMarketState(bytes32 marketId_) internal view returns (MarketState) {
+        // ensure the state is correct upon retrieval
         Market storage market = _markets[marketId_];
-        return
-            market.state == MarketState.OPEN &&
-            block.timestamp < market.closingTime;
+        if (market.state == MarketState.OPEN && block.timestamp > market.closingTime) {
+            return MarketState.ENDED;
+        } else if (market.state == MarketState.RESOLVED && block.timestamp > market.disputeEnd) {
+            return MarketState.CLOSED;
+        }
+        return market.state;
     }
 }
