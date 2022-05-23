@@ -83,20 +83,14 @@ describe("Distamarkets", () => {
             await token.connect(trader2)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("25"), ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 1]));
 
             // checks stakes are counted correctly
-            let addr1StakeId = await distamarkets.getStakeId(trader1.address, marketId, 0);
-            let addr1Stake = await distamarkets.getStake(addr1StakeId);
-            expect(addr1Stake.amount).to.equal(ethers.utils.parseEther("50"));
+            let addr1Stake = await distamarkets.getStake(marketId, 0, trader1.address);
+            expect(addr1Stake).to.equal(ethers.utils.parseEther("50"));
 
-            let addr2StakeId = await distamarkets.getStakeId(trader2.address, marketId, 1);
-            let addr2Stake = await distamarkets.getStake(addr2StakeId);
-            expect(addr2Stake.amount).to.equal(ethers.utils.parseEther("25"));
-
-            // ensure no wrong stake
-            // addr1Stake = await distamarkets.getStake(addr1.address, 1, 1);
-            // expect(addr1Stake).to.equal("0");
+            let addr2Stake = await distamarkets.getStake(marketId, 1, trader2.address);
+            expect(addr2Stake).to.equal(ethers.utils.parseEther("25"));
 
             // ensure stake is counted correctly
-            let totalStake = await distamarkets.getMarketTotalStake(marketId);
+            [, , , , , totalStake, _]  = await distamarkets.getMarket(marketId);
             expect(totalStake).to.equal(ethers.utils.parseEther("75"));
         });
 
@@ -120,17 +114,16 @@ describe("Distamarkets", () => {
 
             // stake 500 and get stakeid
             await token.connect(trader1)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("500"), ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 0]));
-            let addr1StakeId = await distamarkets.getStakeId(trader1.address, marketId, 0);
 
             // track user current balance
             let initialBalance = await token.balanceOf(trader1.address);
 
             // remove 100 from the stake
-            await distamarkets.connect(trader1).removeStake(addr1StakeId, ethers.utils.parseEther("100"));
+            await distamarkets.connect(trader1).removeStake(marketId, 0, ethers.utils.parseEther("100"));
 
             // ensure stake is tracked correctly (considering fees)
-            let addr1Stake = await distamarkets.getStake(addr1StakeId);
-            expect(addr1Stake.amount).to.equal(ethers.utils.parseEther("400"));
+            let addr1Stake = await distamarkets.getStake(marketId, 0, trader1.address);
+            expect(addr1Stake).to.equal(ethers.utils.parseEther("400"));
             
             // ensure user received funds
             let finalBalance = await token.balanceOf(trader1.address);
@@ -161,9 +154,8 @@ describe("Distamarkets", () => {
             await token.connect(trader1)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("25"), ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 0]));
 
             // stake should be 75
-            let addr1StakeId = await distamarkets.getStakeId(trader1.address, marketId, 0);
-            let addr1Stake = await distamarkets.getStake(addr1StakeId);
-            expect(addr1Stake.amount).to.equal(ethers.utils.parseEther("75"));
+            let addr1Stake = await distamarkets.getStake(marketId, 0, trader1.address);
+            expect(addr1Stake).to.equal(ethers.utils.parseEther("75"));
         });
         
         it ("Should prevent removing 0 stake", async () => {
@@ -171,11 +163,8 @@ describe("Distamarkets", () => {
 
             await token.connect(trader1)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("50"), ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 0]));
 
-            // retrieve stake id
-            let addr1StakeId = await distamarkets.getStakeId(trader1.address, marketId, 0);
-
             // cannot remove 0 stake
-            await expect(distamarkets.connect(trader1).removeStake(addr1StakeId, 0)).to.be.revertedWith('Cannot remove 0 stake');
+            await expect(distamarkets.connect(trader1).removeStake(marketId, 0, 0)).to.be.revertedWith('Cannot remove 0 stake');
         });
 
         it ("Should not remove more stake than previously added", async() => {
@@ -183,25 +172,9 @@ describe("Distamarkets", () => {
 
             await token.connect(trader1)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("50"), ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 0]));
 
-            // retrieve stake id
-            let addr1StakeId = await distamarkets.getStakeId(trader1.address, marketId, 0);
-
             // cannot remove 51 stake
-            await expect(distamarkets.connect(trader1).removeStake(addr1StakeId, ethers.utils.parseEther("51")))
+            await expect(distamarkets.connect(trader1).removeStake(marketId, 0, ethers.utils.parseEther("51")))
                 .to.be.revertedWith('Amount exceeds current stake');
-        });
-
-        it ("Should correctly retrieve stakes", async () => {
-            // creates 2 markets
-            let { marketId: marketId1 } =await createMarket();
-            let { marketId: marketId2 } =await createMarket();
-
-            await token.connect(trader1)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("50"), ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId1, 0]));
-            await token.connect(trader1)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("25"), ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId2, 1]));
-
-            // ensure stakes are correct
-            let userStakes = await distamarkets.getUserStakes(trader1.address);
-            expect(userStakes.length).to.equal(2);
         });
 
         it ("Should fail with invalid address callback", async () => {
@@ -221,7 +194,7 @@ describe("Distamarkets", () => {
 
             let initialBalance = await token.balanceOf(trader1.address);
 
-            let wrongMarketId = ethers.utils.formatBytes32String (Math.random() + "");
+            let wrongMarketId = ethers.utils.formatBytes32String(Math.random() + "");
 
             // add stake on wrong market
             await expect(token.connect(trader1)
@@ -264,10 +237,8 @@ describe("Distamarkets", () => {
             await ethers.provider.send('evm_mine');
 
             // remove part of stake
-            let addr1StakeId = await distamarkets.getStakeId(trader1.address, marketId, 0);
-
             await expect(distamarkets.connect(trader1).
-                removeStake(addr1StakeId, ethers.utils.parseEther("10"))
+                removeStake(marketId, 0, ethers.utils.parseEther("10"))
             ).to.be.reverted;
 
         });
@@ -286,9 +257,7 @@ describe("Distamarkets", () => {
             await expect(distamarkets.connect(oracle).resolveMarket(marketId, 0)).to.be.revertedWith("Market can only be closed after the specified period");
         });
 
-        it ("Should allow only oracle to resolve", async () => {
-
-        });
+        it ("Should allow only oracle to resolve");
 
         it ("Should allow only open/ended markets to be resolved", async () => {
             // creates 2 markets
@@ -330,6 +299,7 @@ describe("Distamarkets", () => {
             await expect(distamarkets.connect(trader1).cancelMarket(marketId))
                 .to.be.revertedWith("Only creator OR oracle can cancel OPEN market");
 
+            // canceling with oracle should work
             await distamarkets.connect(oracle).cancelMarket(marketId);
 
             let [, , , , , , , , state] = await distamarkets.getMarket(marketId);
@@ -380,17 +350,15 @@ describe("Distamarkets", () => {
             await token.connect(trader1)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("1000"), ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 0]));
             await token.connect(trader2)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("500"), ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 0]));
             await token.connect(trader3)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("500"), ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 1]));
-            let addr1StakeId = await distamarkets.getStakeId(trader1.address, marketId, 0);
-            let addr3StakeId = await distamarkets.getStakeId(trader3.address, marketId, 1);
 
             // trader 3 cancels the stake
-            await distamarkets.connect(trader3).removeStake(addr3StakeId, ethers.utils.parseEther("500"));
+            await distamarkets.connect(trader3).removeStake(marketId, 1, ethers.utils.parseEther("500"));
 
             // cancel the market
             await distamarkets.connect(oracle).cancelMarket(marketId);
 
             // ensure user received funds
-            await distamarkets.connect(trader1).refund(addr1StakeId);
+            await distamarkets.connect(trader1).refund(marketId, 0);
             let finalBalance = await token.balanceOf(trader1.address);
 
             // Should be the amount withdrawn minus 10% fee
@@ -415,17 +383,11 @@ describe("Distamarkets", () => {
             await token.connect(trader3)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("90"),  ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 1]));
             await token.connect(trader4)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("20"),  ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 1]));
 
-            // retrieve all stake ids
-            let addr1StakeId = await distamarkets.getStakeId(trader1.address, marketId, 0);
-            let addr2StakeId = await distamarkets.getStakeId(trader2.address, marketId, 0);
-            let addr3StakeId = await distamarkets.getStakeId(trader3.address, marketId, 1);
-            let addr4StakeId = await distamarkets.getStakeId(trader4.address, marketId, 1);
-
             // potential reward of addr should be 50
-            expect(await distamarkets.calculateReward(addr1StakeId)).to.equal(ethers.utils.parseEther("50"));
-            expect(await distamarkets.calculateReward(addr2StakeId)).to.equal(ethers.utils.parseEther("60"));
-            expect(await distamarkets.calculateReward(addr3StakeId)).to.equal(ethers.utils.parseEther("450"));
-            expect(await distamarkets.calculateReward(addr4StakeId)).to.equal(ethers.utils.parseEther("100"));
+            expect(await distamarkets.calculateReward(marketId, 0, trader1.address)).to.equal(ethers.utils.parseEther("50"));
+            expect(await distamarkets.calculateReward(marketId, 0, trader2.address)).to.equal(ethers.utils.parseEther("60"));
+            expect(await distamarkets.calculateReward(marketId, 1, trader3.address)).to.equal(ethers.utils.parseEther("450"));
+            expect(await distamarkets.calculateReward(marketId, 1, trader4.address)).to.equal(ethers.utils.parseEther("100"));
         });
 
         it ("Should retrieve rewards", async () => {
