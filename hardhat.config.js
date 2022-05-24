@@ -25,7 +25,8 @@ const {
   KOVAN_API_URL,
   KOVAN_PRIVATE_KEY,
   ETHERSCAN_API_KEY,
-  POLYGONSCAN_API_KEY
+  POLYGONSCAN_API_KEY,
+  CMC_API_KEY
 } = process.env;
 
 module.exports = {
@@ -110,5 +111,10 @@ module.exports = {
     runOnCompile: true,
     strict: true,
     except: ["WFAIRToken.sol"],
+  },
+
+  gasReporter: {
+    currency: 'EUR',
+    coinmarketcap: CMC_API_KEY
   }
 };
