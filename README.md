@@ -50,7 +50,7 @@ Ended is a state of an Open contract whose closing time has passed.
 ### CLOSED
 
 1. Users can withdraw winnings ✔
-2. Creator can withdraw the collected fees 
+2. Creator can withdraw the collected fees ✔
 
 ### CANCELED
 

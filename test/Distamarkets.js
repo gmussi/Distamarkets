@@ -12,7 +12,7 @@ const MarketState = {
 let Distamarkets, distamarkets, owner, creator, oracle, trader1, trader2, trader3, trader4, Token, token;
 
 // help functions
-const createMarket = async () => {
+const createMarket = async (numOutcomes = 2) => {
     // get market block timestamp
     const blockNumBefore = await ethers.provider.getBlockNumber();
     const blockBefore = await ethers.provider.getBlock(blockNumBefore);
@@ -21,10 +21,10 @@ const createMarket = async () => {
     // add 1 hour
     let timeLimit = timestampBefore + 3600;
 
-    let marketId = ethers.utils.formatBytes32String (Math.random() + "");
+    marketId = ethers.utils.formatBytes32String (Math.random() + "");
     
     // create market
-    await distamarkets.connect(creator).createMarket(marketId, oracle.address, timeLimit, 2);
+    await distamarkets.connect(creator).createMarket(marketId, oracle.address, timeLimit, numOutcomes);
     
     return {marketId, timeLimit};
 };
@@ -53,7 +53,6 @@ describe("Distamarkets", () => {
             
             expect(tokenAddress).to.equal(token.address);
         });
-
     });
     
     describe("Markets", () => {
@@ -70,6 +69,33 @@ describe("Distamarkets", () => {
             expect(closingTime).to.equal(timeLimit);
             expect(totalStake).to.equal(0);
             expect(state).to.equal(MarketState.OPEN);
+        });
+
+        it ("Should prevent duplicate ids", async () => {
+            let {marketId, timeLimit} = await createMarket();
+
+            await expect(distamarkets.connect(creator).createMarket(marketId, oracle.address, timeLimit, 2))
+            .to.be.revertedWith("Market already exists");
+        });
+
+        it ("Should prevent invalid oracle", async () => {
+            await expect(distamarkets.connect(creator).createMarket(ethers.utils.formatBytes32String("test"), "0x0000000000000000000000000000000000000000", Date.now() + 1000, 2))
+            .to.be.revertedWith("Invalid oracle address");
+        });
+
+        it ("Should prevent markets closing in the past", async () => {
+            await expect(distamarkets.connect(creator).createMarket(ethers.utils.formatBytes32String("test"), oracle.address, 0, 2))
+            .to.be.revertedWith("Cannot create markets that close on the past");
+        });
+
+        it ("Should require min. 2 outcomes", async() => {
+            // should fail with no outcomes
+            expect(distamarkets.connect(creator).createMarket(ethers.utils.formatBytes32String("test"), oracle.address, Date.now() + 1000, 0))
+            .to.be.revertedWith("Market needs at least 2 outcomes");
+
+            // should fail with just 1 outcome
+            await expect(distamarkets.connect(creator).createMarket(ethers.utils.formatBytes32String("test"), oracle.address, Date.now() + 1000, 1))
+            .to.be.revertedWith("Market needs at least 2 outcomes");
         });
     });
 
@@ -328,6 +354,24 @@ describe("Distamarkets", () => {
             let [, , , , , , , , state] = await distamarkets.getMarket(marketId);
             expect(state).to.equal(MarketState.CANCELLED);
         });
+        it ("Should allow oracle to cancel an ended market", async() => {
+            // creates a market
+            let { marketId } = await createMarket();
+
+            // advance 1 hour
+            await ethers.provider.send('evm_increaseTime', [3601]);
+            await ethers.provider.send('evm_mine');
+
+            // expect failure if not oracle
+            await expect(distamarkets.connect(creator).cancelMarket(marketId))
+            .to.be.revertedWith("Only oracle can cancel ENDED markets");
+
+            // with oracle it should work
+            await distamarkets.connect(oracle).cancelMarket(marketId);
+
+            let [, , , , , , , , state] = await distamarkets.getMarket(marketId);
+            expect(state).to.equal(MarketState.CANCELLED);
+        });
         it ("Cannot cancel already canceled market", async () => {
             // creates a market
             let { marketId } = await createMarket();
@@ -363,6 +407,10 @@ describe("Distamarkets", () => {
 
             // trader 3 cancels the stake
             await distamarkets.connect(trader3).removeStake(marketId, 1, ethers.utils.parseEther("500"));
+
+            // refund should fail due to market not being canceled yet
+            await expect(distamarkets.connect(trader1).refund(marketId, 0))
+            .to.be.revertedWith("Market must be canceled");
 
             // cancel the market
             await distamarkets.connect(oracle).cancelMarket(marketId);
@@ -417,6 +465,10 @@ describe("Distamarkets", () => {
             // resolve the market
             await distamarkets.connect(oracle).resolveMarket(marketId, 0);
 
+            // should fail as market is not closed yet
+            await expect(distamarkets.connect(creator).collectFees(marketId))
+                .to.be.revertedWith("Market is not closed");
+
             // wait for dispute period
             await ethers.provider.send('evm_increaseTime', [88401]);
             await ethers.provider.send('evm_mine');
@@ -438,6 +490,10 @@ describe("Distamarkets", () => {
             // there should be no fee left in the contract
             [, , , , , , , feeCollected, _] = await distamarkets.getMarket(marketId);
             expect(feeCollected).to.equal(ethers.utils.parseEther("0"));
+
+            // should fail as there is no fees to be collected anymore
+            await expect(distamarkets.connect(creator).collectFees(marketId))
+            .to.be.revertedWith("No fees to collect");
         });
     });
 
@@ -487,6 +543,10 @@ describe("Distamarkets", () => {
             let finalBalance = await token.balanceOf(trader1.address);
 
             expect(finalBalance.sub(initialBalance)).to.equal(ethers.utils.parseEther("50"));
+
+            // balance should be 0 now, so expect failure on second call
+            await expect(distamarkets.connect(trader1).withdrawReward(marketId, 0))
+            .to.be.revertedWith("Nothing to withdraw");
         });
 
         it ("Should only retrieve rewards when market is closed", async () => {
@@ -566,10 +626,14 @@ describe("Distamarkets", () => {
             await distamarkets.connect(oracle).resolveMarket(marketId, 0);
 
             // dispute
-            distamarkets.connect(trader1).disputeMarket(marketId, 0);
+            await distamarkets.connect(trader1).disputeMarket(marketId, 0);
+
+            // only oracle can cancel disputed markets
+            await expect(distamarkets.connect(creator).cancelMarket(marketId))
+            .to.be.revertedWith("Only oracle can cancel DISPUTED markets");
 
             // oracle can cancel the market now
-            distamarkets.connect(oracle).cancelMarket(marketId);
+            await distamarkets.connect(oracle).cancelMarket(marketId);
         });
         it ("Can solve a dispute by closing with outcome", async () => {
             let { marketId } = await createMarket();
@@ -583,10 +647,18 @@ describe("Distamarkets", () => {
             // resolve the market
             await distamarkets.connect(oracle).resolveMarket(marketId, 0);
 
+            // closing should fail as market not in dispute yet
+            await expect(distamarkets.connect(oracle).closeMarket(marketId, 1))
+            .to.be.revertedWith("Market not in dispute");
+
             // dispute
             distamarkets.connect(trader1).disputeMarket(marketId, 0);
 
-            // oracle can cancel the market now
+            // only oracle can close the market
+            await expect(distamarkets.connect(creator).closeMarket(marketId, 1))
+            .to.be.revertedWith("Sender not oracle");
+
+            // oracle can close the market now
             distamarkets.connect(oracle).closeMarket(marketId, 1);
         });
     });

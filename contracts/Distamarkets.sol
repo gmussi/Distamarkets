@@ -284,7 +284,7 @@ contract Distamarkets is IERC1363Spender {
     }
 
     /// @notice Allows any user with a stake to dispute the market
-    /// @dev in order to save gas fees, user should specify also the outcome
+    /// @dev in order to save gas fees, user should specify also an outcome with his stake
     /// @param marketId_ Id of the market
     /// @param outcomeId_ Id of the outcome
     function disputeMarket(bytes32 marketId_, uint256 outcomeId_) external {
@@ -323,11 +323,6 @@ contract Distamarkets is IERC1363Spender {
         require(
             oldState == MarketState.ENDED,
             "Only ended markets can be resolved"
-        );
-
-        require(
-            block.timestamp > market.closingTime,
-            "Dispute period not over"
         );
 
         market.state = MarketState.RESOLVED;
@@ -405,10 +400,10 @@ contract Distamarkets is IERC1363Spender {
         );
 
         uint256 balance = _markets[marketId_].stakes[outcomeId_][msg.sender];
+        require(balance > 0, "Nothing to withdraw");
+
         uint256 balancePlusReward = balance +
             _calculateReward(marketId_, outcomeId_, msg.sender);
-
-        require(balancePlusReward > 0, "No reward to withdraw");
 
         // transfer reward
         _token.safeTransfer(msg.sender, balancePlusReward);
@@ -473,11 +468,14 @@ contract Distamarkets is IERC1363Spender {
     /// @notice This function allows market creator to wtihdraw fees from closed market
     /// @param marketId_ Id of the market
     function collectFees(bytes32 marketId_) external {
-        require(_getMarketState(marketId_) == MarketState.CLOSED, "Market is not closed");
-        
+        require(
+            _getMarketState(marketId_) == MarketState.CLOSED,
+            "Market is not closed"
+        );
+
         Market storage market = _markets[marketId_];
 
-    	// additional requirements
+        // additional requirements
         require(market.feeCollected > 0, "No fees to collect");
         require(market.creator == msg.sender, "Must be market creator");
 
