@@ -470,6 +470,24 @@ contract Distamarkets is IERC1363Spender {
         return _markets[marketId_].stakes[outcomeId_][user_];
     }
 
+    /// @notice This function allows market creator to wtihdraw fees from closed market
+    /// @param marketId_ Id of the market
+    function collectFees(bytes32 marketId_) external {
+        require(_getMarketState(marketId_) == MarketState.CLOSED, "Market is not closed");
+        
+        Market storage market = _markets[marketId_];
+
+    	// additional requirements
+        require(market.feeCollected > 0, "No fees to collect");
+        require(market.creator == msg.sender, "Must be market creator");
+
+        // transfer the tokens
+        _token.safeTransfer(msg.sender, market.feeCollected);
+
+        // updated market
+        market.feeCollected = 0;
+    }
+
     /// @notice This function returns the ERC20 token associated upon contract creation
     function token() external view returns (IERC20) {
         return _token;

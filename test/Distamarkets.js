@@ -257,7 +257,17 @@ describe("Distamarkets", () => {
             await expect(distamarkets.connect(oracle).resolveMarket(marketId, 0)).to.be.revertedWith("Only ended markets can be resolved");
         });
 
-        it ("Should allow only oracle to resolve");
+        it ("Should allow only oracle to resolve", async() => {
+            // creates 2 markets
+            let { marketId } = await createMarket();
+
+            // advance less than 1 hour
+            await ethers.provider.send('evm_increaseTime', [1000]);
+            await ethers.provider.send('evm_mine');
+
+            // trying to resolve should end in failure
+            await expect(distamarkets.connect(trader1).resolveMarket(marketId, 0)).to.be.revertedWith("Only the oracle can resolve the market");
+        });
 
         it ("Should allow only ended markets to be resolved", async () => {
             // creates 2 markets
@@ -368,8 +378,67 @@ describe("Distamarkets", () => {
             let [, , , , , , , feeCollected, _] = await distamarkets.getMarket(marketId);
             expect(feeCollected).to.equal(ethers.utils.parseEther("18"));
         });
-        it ("Closed markets cannot be canceled");
-        it ("Only oracle can cancel ENDED markets");
+        it ("Closed markets cannot be canceled", async () => {
+            let { marketId } = await createMarket();
+
+             // wait for the closing time
+             await ethers.provider.send('evm_increaseTime', [3601]);
+             await ethers.provider.send('evm_mine');
+
+            // resolve the market
+            await distamarkets.connect(oracle).resolveMarket(marketId, 0);
+
+            // wait for the dispute period
+            await ethers.provider.send('evm_increaseTime', [86401]);
+            await ethers.provider.send('evm_mine');
+
+            // cannot cancel anymore as market is now closed
+            await expect(distamarkets.connect(oracle).cancelMarket(marketId))
+                .to.be.revertedWith("CLOSED markets can't be canceled anymore");
+        });
+        it ("Creator can collect fees from closed contracts", async () => {
+            // create market
+            let { marketId } = await createMarket();
+
+            let initialBalance = await token.balanceOf(creator.address);
+
+            // add stakes and get ids
+            await token.connect(trader1)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("1000"), ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 0]));
+            await token.connect(trader2)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("500"), ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 0]));
+            await token.connect(trader3)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("500"), ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 1]));
+
+            // trader 3 cancels the stake
+            await distamarkets.connect(trader3).removeStake(marketId, 1, ethers.utils.parseEther("500"));
+
+            // wait for the closing time
+            await ethers.provider.send('evm_increaseTime', [3601]);
+            await ethers.provider.send('evm_mine');
+
+            // resolve the market
+            await distamarkets.connect(oracle).resolveMarket(marketId, 0);
+
+            // wait for dispute period
+            await ethers.provider.send('evm_increaseTime', [88401]);
+            await ethers.provider.send('evm_mine');
+
+            // withdraw collected fees
+            let [, , , , , , , feeCollected, _] = await distamarkets.getMarket(marketId);
+
+            // should fail for non-creator
+            await expect(distamarkets.connect(trader1).collectFees(marketId))
+                .to.be.revertedWith("Must be market creator");
+
+            // should work for creator
+            await distamarkets.connect(creator).collectFees(marketId);
+            
+            // user should have correct balance
+            let finalBalance = await token.balanceOf(creator.address);
+            expect(finalBalance.sub(initialBalance)).to.equal(feeCollected);
+
+            // there should be no fee left in the contract
+            [, , , , , , , feeCollected, _] = await distamarkets.getMarket(marketId);
+            expect(feeCollected).to.equal(ethers.utils.parseEther("0"));
+        });
     });
 
     describe("Withdraw rewards", async() => {
@@ -400,9 +469,9 @@ describe("Distamarkets", () => {
             await token.connect(trader3)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("90"),  ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 1]));
             await token.connect(trader4)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("20"),  ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 1]));
 
-             // wait for the closing time
-             await ethers.provider.send('evm_increaseTime', [3601]);
-             await ethers.provider.send('evm_mine');
+            // wait for the closing time
+            await ethers.provider.send('evm_increaseTime', [3601]);
+            await ethers.provider.send('evm_mine');
 
             // resolve the market
             await distamarkets.connect(oracle).resolveMarket(marketId, 0);
