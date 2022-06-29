@@ -1,3 +1,5 @@
+import { run, hardhatArguments, ethers } from "hardhat";
+
 const WFAIR_ADDRESS = {
     mumbai: "0x2d8173753616aE437819D3204B21e813D7d4cC29"
 };
@@ -24,7 +26,7 @@ async function main() {
     }
 
     console.log("Verifying contract on etherscan.")
-    await hre.run("verify:verify", {
+    await run("verify:verify", {
         address: distamarkets.address,
         constructorArguments: [tokenAddress]
     });

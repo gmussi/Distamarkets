@@ -1,4 +1,7 @@
-const { expect } = require("chai");
+import { ethers } from "hardhat";
+import { Signer } from "ethers";
+import { expect } from "chai";
+import { Distamarkets, Distamarkets__factory, WFAIRToken, WFAIRToken__factory } from "../build/types";
 
 const MarketState = {
     OPEN: 0,
@@ -9,7 +12,15 @@ const MarketState = {
     CANCELLED: 5
 }
 
-let Distamarkets, distamarkets, owner, creator, oracle, trader1, trader2, trader3, trader4, Token, token;
+let distamarkets: Distamarkets, 
+    owner: Signer, 
+    creator: Signer, 
+    oracle: Signer, 
+    trader1: Signer, 
+    trader2: Signer, 
+    trader3: Signer, 
+    trader4: Signer, 
+    token: WFAIRToken;
 
 // help functions
 const createMarket = async (numOutcomes = 2) => {
@@ -21,30 +32,30 @@ const createMarket = async (numOutcomes = 2) => {
     // add 1 hour
     let timeLimit = timestampBefore + 3600;
 
-    marketId = ethers.utils.formatBytes32String (Math.random() + "");
+    let marketId = ethers.utils.formatBytes32String (Math.random() + "");
     
     // create market
-    await distamarkets.connect(creator).createMarket(marketId, oracle.address, timeLimit, numOutcomes);
+    await distamarkets.connect(creator).createMarket(marketId, oracle.getAddress(), timeLimit, numOutcomes);
     
     return {marketId, timeLimit};
 };
 
 describe("Distamarkets", () => {
     beforeEach(async () => {
+        // load all signers
+        [owner, creator, oracle, trader1, trader2, trader3, trader4] = await ethers.getSigners(); 
+
         // deploy token first
-        Token = await ethers.getContractFactory("WFAIRToken");
-        token = await Token.deploy(ethers.utils.parseEther("1000000000"));
+        token = await new WFAIRToken__factory(owner).deploy(ethers.utils.parseEther("1000000000"));
 
         // deploy contract
-        Distamarkets = await ethers.getContractFactory("Distamarkets");
-        distamarkets = await Distamarkets.deploy(token.address);
-        [owner, creator, oracle, trader1, trader2, trader3, trader4, _] = await ethers.getSigners(); 
+        distamarkets = await new Distamarkets__factory(owner).deploy(token.address);
 
         // distribute 1k tokens for each user
-        await token.connect(owner).transfer(trader1.address, ethers.utils.parseEther("1000"));
-        await token.connect(owner).transfer(trader2.address, ethers.utils.parseEther("1000"));
-        await token.connect(owner).transfer(trader3.address, ethers.utils.parseEther("1000"));
-        await token.connect(owner).transfer(trader4.address, ethers.utils.parseEther("1000"));
+        await token.connect(owner).transfer(trader1.getAddress(), ethers.utils.parseEther("1000"));
+        await token.connect(owner).transfer(trader2.getAddress(), ethers.utils.parseEther("1000"));
+        await token.connect(owner).transfer(trader3.getAddress(), ethers.utils.parseEther("1000"));
+        await token.connect(owner).transfer(trader4.getAddress(), ethers.utils.parseEther("1000"));
     });
 
     describe("Deployment", () => {
@@ -61,10 +72,10 @@ describe("Distamarkets", () => {
             let {marketId, timeLimit} = await createMarket();
             
             // check everything was saved correctly
-            [oracleAddr, creatorAddr, numOutcomes, closingTime, , totalStake, , , state]  = await distamarkets.getMarket(marketId);
+            let [oracleAddr, creatorAddr, numOutcomes, closingTime, , totalStake, , , state]  = await distamarkets.getMarket(marketId);
 
-            expect(oracleAddr).to.equal(oracle.address);
-            expect(creatorAddr).to.equal(creator.address);
+            expect(oracleAddr).to.equal(await oracle.getAddress());
+            expect(creatorAddr).to.equal(await creator.getAddress());
             expect(numOutcomes).to.equal(2);
             expect(closingTime).to.equal(timeLimit);
             expect(totalStake).to.equal(0);
@@ -74,7 +85,7 @@ describe("Distamarkets", () => {
         it ("Should prevent duplicate ids", async () => {
             let {marketId, timeLimit} = await createMarket();
 
-            await expect(distamarkets.connect(creator).createMarket(marketId, oracle.address, timeLimit, 2))
+            await expect(distamarkets.connect(creator).createMarket(marketId, oracle.getAddress(), timeLimit, 2))
             .to.be.revertedWith("Market already exists");
         });
 
@@ -84,17 +95,17 @@ describe("Distamarkets", () => {
         });
 
         it ("Should prevent markets closing in the past", async () => {
-            await expect(distamarkets.connect(creator).createMarket(ethers.utils.formatBytes32String("test"), oracle.address, 0, 2))
+            await expect(distamarkets.connect(creator).createMarket(ethers.utils.formatBytes32String("test"), oracle.getAddress(), 0, 2))
             .to.be.revertedWith("Cannot create markets that close on the past");
         });
 
         it ("Should require min. 2 outcomes", async() => {
             // should fail with no outcomes
-            expect(distamarkets.connect(creator).createMarket(ethers.utils.formatBytes32String("test"), oracle.address, Date.now() + 1000, 0))
+            expect(distamarkets.connect(creator).createMarket(ethers.utils.formatBytes32String("test"), oracle.getAddress(), Date.now() + 1000, 0))
             .to.be.revertedWith("Market needs at least 2 outcomes");
 
             // should fail with just 1 outcome
-            await expect(distamarkets.connect(creator).createMarket(ethers.utils.formatBytes32String("test"), oracle.address, Date.now() + 1000, 1))
+            await expect(distamarkets.connect(creator).createMarket(ethers.utils.formatBytes32String("test"), oracle.getAddress(), Date.now() + 1000, 1))
             .to.be.revertedWith("Market needs at least 2 outcomes");
         });
     });
@@ -109,14 +120,14 @@ describe("Distamarkets", () => {
             await token.connect(trader2)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("25"), ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 1]));
 
             // checks stakes are counted correctly
-            let addr1Stake = await distamarkets.getStake(marketId, 0, trader1.address);
+            let addr1Stake = await distamarkets.getStake(marketId, 0, trader1.getAddress());
             expect(addr1Stake).to.equal(ethers.utils.parseEther("50"));
 
-            let addr2Stake = await distamarkets.getStake(marketId, 1, trader2.address);
+            let addr2Stake = await distamarkets.getStake(marketId, 1, trader2.getAddress());
             expect(addr2Stake).to.equal(ethers.utils.parseEther("25"));
 
             // ensure stake is counted correctly
-            [, , , , , totalStake, _]  = await distamarkets.getMarket(marketId);
+            let [, , , , , totalStake]  = await distamarkets.getMarket(marketId);
             expect(totalStake).to.equal(ethers.utils.parseEther("75"));
         });
 
@@ -142,17 +153,17 @@ describe("Distamarkets", () => {
             await token.connect(trader1)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("500"), ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 0]));
 
             // track user current balance
-            let initialBalance = await token.balanceOf(trader1.address);
+            let initialBalance = await token.balanceOf(trader1.getAddress());
 
             // remove 100 from the stake
             await distamarkets.connect(trader1).removeStake(marketId, 0, ethers.utils.parseEther("100"));
 
             // ensure stake is tracked correctly (considering fees)
-            let addr1Stake = await distamarkets.getStake(marketId, 0, trader1.address);
+            let addr1Stake = await distamarkets.getStake(marketId, 0, trader1.getAddress());
             expect(addr1Stake).to.equal(ethers.utils.parseEther("400"));
             
             // ensure user received funds
-            let finalBalance = await token.balanceOf(trader1.address);
+            let finalBalance = await token.balanceOf(trader1.getAddress());
 
             // Should be the amount withdrawn minus 10% fee
             expect(finalBalance.sub(initialBalance)).to.equal(ethers.utils.parseEther("90"));
@@ -180,7 +191,7 @@ describe("Distamarkets", () => {
             await token.connect(trader1)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("25"), ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 0]));
 
             // stake should be 75
-            let addr1Stake = await distamarkets.getStake(marketId, 0, trader1.address);
+            let addr1Stake = await distamarkets.getStake(marketId, 0, trader1.getAddress());
             expect(addr1Stake).to.equal(ethers.utils.parseEther("75"));
         });
         
@@ -218,7 +229,7 @@ describe("Distamarkets", () => {
             // create market
             await createMarket();
 
-            let initialBalance = await token.balanceOf(trader1.address);
+            let initialBalance = await token.balanceOf(trader1.getAddress());
 
             let wrongMarketId = ethers.utils.formatBytes32String(Math.random() + "");
 
@@ -231,7 +242,7 @@ describe("Distamarkets", () => {
             ).to.be.revertedWith("Market not found or not initialized");
 
             // user should still have same amount of tokens
-            let finalBalance = await token.balanceOf(trader1.address);
+            let finalBalance = await token.balanceOf(trader1.getAddress());
             expect(initialBalance).to.equal(finalBalance);
         });
         
@@ -241,7 +252,7 @@ describe("Distamarkets", () => {
 
             // advance 1 hour
             await ethers.provider.send('evm_increaseTime', [3600]);
-            await ethers.provider.send('evm_mine');
+            await ethers.provider.send('evm_mine', []);
 
             // should fail to market being closed
             await expect(token.connect(trader1)
@@ -260,7 +271,7 @@ describe("Distamarkets", () => {
 
             // advance 1 hour
             await ethers.provider.send('evm_increaseTime', [3601]);
-            await ethers.provider.send('evm_mine');
+            await ethers.provider.send('evm_mine', []);
 
             // remove part of stake
             await expect(distamarkets.connect(trader1).
@@ -277,7 +288,7 @@ describe("Distamarkets", () => {
 
             // advance less than 1 hour
             await ethers.provider.send('evm_increaseTime', [1000]);
-            await ethers.provider.send('evm_mine');
+            await ethers.provider.send('evm_mine', []);
 
             // trying to resolve should end in failure
             await expect(distamarkets.connect(oracle).resolveMarket(marketId, 0)).to.be.revertedWith("Only ended markets can be resolved");
@@ -289,7 +300,7 @@ describe("Distamarkets", () => {
 
             // advance less than 1 hour
             await ethers.provider.send('evm_increaseTime', [1000]);
-            await ethers.provider.send('evm_mine');
+            await ethers.provider.send('evm_mine', []);
 
             // trying to resolve should end in failure
             await expect(distamarkets.connect(trader1).resolveMarket(marketId, 0)).to.be.revertedWith("Only the oracle can resolve the market");
@@ -301,7 +312,7 @@ describe("Distamarkets", () => {
 
             // advance 1 hour
             await ethers.provider.send('evm_increaseTime', [3601]);
-            await ethers.provider.send('evm_mine');
+            await ethers.provider.send('evm_mine', []);
 
             // resolve first time ok
             await distamarkets.connect(oracle).resolveMarket(marketId, 0);
@@ -317,7 +328,7 @@ describe("Distamarkets", () => {
 
             // advance 1 hour
             await ethers.provider.send('evm_increaseTime', [3601]);
-            await ethers.provider.send('evm_mine');
+            await ethers.provider.send('evm_mine', []);
 
             await distamarkets.connect(oracle).resolveMarket(marketId, 0);
 
@@ -360,7 +371,7 @@ describe("Distamarkets", () => {
 
             // advance 1 hour
             await ethers.provider.send('evm_increaseTime', [3601]);
-            await ethers.provider.send('evm_mine');
+            await ethers.provider.send('evm_mine', []);
 
             // expect failure if not oracle
             await expect(distamarkets.connect(creator).cancelMarket(marketId))
@@ -387,7 +398,7 @@ describe("Distamarkets", () => {
 
             // advance 1 hour
             await ethers.provider.send('evm_increaseTime', [3601]);
-            await ethers.provider.send('evm_mine');
+            await ethers.provider.send('evm_mine', []);
 
             await distamarkets.connect(oracle).resolveMarket(marketId, 0);
 
@@ -398,7 +409,7 @@ describe("Distamarkets", () => {
             // create market
             let { marketId } = await createMarket();
 
-            let initialBalance = await token.balanceOf(trader1.address);
+            let initialBalance = await token.balanceOf(trader1.getAddress());
 
             // add stakes and get ids
             await token.connect(trader1)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("1000"), ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 0]));
@@ -417,7 +428,7 @@ describe("Distamarkets", () => {
 
             // ensure user received funds
             await distamarkets.connect(trader1).refund(marketId, 0);
-            let finalBalance = await token.balanceOf(trader1.address);
+            let finalBalance = await token.balanceOf(trader1.getAddress());
 
             // Should be the amount withdrawn minus 10% fee
             expect(finalBalance.sub(initialBalance)).to.equal(ethers.utils.parseEther("32"));
@@ -431,14 +442,14 @@ describe("Distamarkets", () => {
 
              // wait for the closing time
              await ethers.provider.send('evm_increaseTime', [3601]);
-             await ethers.provider.send('evm_mine');
+             await ethers.provider.send('evm_mine', []);
 
             // resolve the market
             await distamarkets.connect(oracle).resolveMarket(marketId, 0);
 
             // wait for the dispute period
             await ethers.provider.send('evm_increaseTime', [86401]);
-            await ethers.provider.send('evm_mine');
+            await ethers.provider.send('evm_mine', []);
 
             // cannot cancel anymore as market is now closed
             await expect(distamarkets.connect(oracle).cancelMarket(marketId))
@@ -448,7 +459,7 @@ describe("Distamarkets", () => {
             // create market
             let { marketId } = await createMarket();
 
-            let initialBalance = await token.balanceOf(creator.address);
+            let initialBalance = await token.balanceOf(creator.getAddress());
 
             // add stakes and get ids
             await token.connect(trader1)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("1000"), ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 0]));
@@ -460,7 +471,7 @@ describe("Distamarkets", () => {
 
             // wait for the closing time
             await ethers.provider.send('evm_increaseTime', [3601]);
-            await ethers.provider.send('evm_mine');
+            await ethers.provider.send('evm_mine', []);
 
             // resolve the market
             await distamarkets.connect(oracle).resolveMarket(marketId, 0);
@@ -471,7 +482,7 @@ describe("Distamarkets", () => {
 
             // wait for dispute period
             await ethers.provider.send('evm_increaseTime', [88401]);
-            await ethers.provider.send('evm_mine');
+            await ethers.provider.send('evm_mine', []);
 
             // withdraw collected fees
             let [, , , , , , , feeCollected, _] = await distamarkets.getMarket(marketId);
@@ -484,7 +495,7 @@ describe("Distamarkets", () => {
             await distamarkets.connect(creator).collectFees(marketId);
             
             // user should have correct balance
-            let finalBalance = await token.balanceOf(creator.address);
+            let finalBalance = await token.balanceOf(creator.getAddress());
             expect(finalBalance.sub(initialBalance)).to.equal(feeCollected);
 
             // there should be no fee left in the contract
@@ -508,16 +519,16 @@ describe("Distamarkets", () => {
             await token.connect(trader4)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("20"),  ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 1]));
 
             // potential reward of addr should be 50
-            expect(await distamarkets.calculateReward(marketId, 0, trader1.address)).to.equal(ethers.utils.parseEther("50"));
-            expect(await distamarkets.calculateReward(marketId, 0, trader2.address)).to.equal(ethers.utils.parseEther("60"));
-            expect(await distamarkets.calculateReward(marketId, 1, trader3.address)).to.equal(ethers.utils.parseEther("450"));
-            expect(await distamarkets.calculateReward(marketId, 1, trader4.address)).to.equal(ethers.utils.parseEther("100"));
+            expect(await distamarkets.calculateReward(marketId, 0, trader1.getAddress())).to.equal(ethers.utils.parseEther("50"));
+            expect(await distamarkets.calculateReward(marketId, 0, trader2.getAddress())).to.equal(ethers.utils.parseEther("60"));
+            expect(await distamarkets.calculateReward(marketId, 1, trader3.getAddress())).to.equal(ethers.utils.parseEther("450"));
+            expect(await distamarkets.calculateReward(marketId, 1, trader4.getAddress())).to.equal(ethers.utils.parseEther("100"));
         });
 
         it ("Should retrieve rewards", async () => {
             let { marketId } = await createMarket();
 
-            let initialBalance = await token.balanceOf(trader1.address);
+            let initialBalance = await token.balanceOf(trader1.getAddress());
 
             // add multiple stakes to the outcomes
             await token.connect(trader1)["approveAndCall(address,uint256,bytes)"](distamarkets.address, ethers.utils.parseEther("250"), ethers.utils.defaultAbiCoder.encode(["bytes32", "uint256"], [marketId, 0]));
@@ -527,20 +538,20 @@ describe("Distamarkets", () => {
 
             // wait for the closing time
             await ethers.provider.send('evm_increaseTime', [3601]);
-            await ethers.provider.send('evm_mine');
+            await ethers.provider.send('evm_mine', []);
 
             // resolve the market
             await distamarkets.connect(oracle).resolveMarket(marketId, 0);
 
             // wait for the dispute period
             await ethers.provider.send('evm_increaseTime', [86401]);
-            await ethers.provider.send('evm_mine');
+            await ethers.provider.send('evm_mine', []);
 
             // get the reward
             await distamarkets.connect(trader1).withdrawReward(marketId, 0);
 
             // check balance is ok
-            let finalBalance = await token.balanceOf(trader1.address);
+            let finalBalance = await token.balanceOf(trader1.getAddress());
 
             expect(finalBalance.sub(initialBalance)).to.equal(ethers.utils.parseEther("50"));
 
@@ -558,7 +569,7 @@ describe("Distamarkets", () => {
 
             // wait for the closing time
             await ethers.provider.send('evm_increaseTime', [3601]);
-            await ethers.provider.send('evm_mine');
+            await ethers.provider.send('evm_mine', []);
 
              // resolve the market
             await distamarkets.connect(oracle).resolveMarket(marketId, 0);
@@ -577,7 +588,7 @@ describe("Distamarkets", () => {
 
             // wait for the closing time
             await ethers.provider.send('evm_increaseTime', [3601]);
-            await ethers.provider.send('evm_mine');
+            await ethers.provider.send('evm_mine', []);
 
             // resolve the market
             await distamarkets.connect(oracle).resolveMarket(marketId, 0);
@@ -600,14 +611,14 @@ describe("Distamarkets", () => {
 
             // wait for the closing time
             await ethers.provider.send('evm_increaseTime', [3601]);
-            await ethers.provider.send('evm_mine');
+            await ethers.provider.send('evm_mine', []);
 
             // resolve the market
             await distamarkets.connect(oracle).resolveMarket(marketId, 0);
 
             // wait for the dispute period
             await ethers.provider.send('evm_increaseTime', [86401]);
-            await ethers.provider.send('evm_mine');
+            await ethers.provider.send('evm_mine', []);
 
             // should fail as dispute period passed
             await expect(distamarkets.connect(trader1).disputeMarket(marketId, 0))
@@ -620,7 +631,7 @@ describe("Distamarkets", () => {
 
             // wait for the closing time
             await ethers.provider.send('evm_increaseTime', [3601]);
-            await ethers.provider.send('evm_mine');
+            await ethers.provider.send('evm_mine', []);
 
             // resolve the market
             await distamarkets.connect(oracle).resolveMarket(marketId, 0);
@@ -642,7 +653,7 @@ describe("Distamarkets", () => {
 
             // wait for the closing time
             await ethers.provider.send('evm_increaseTime', [3601]);
-            await ethers.provider.send('evm_mine');
+            await ethers.provider.send('evm_mine', []);
 
             // resolve the market
             await distamarkets.connect(oracle).resolveMarket(marketId, 0);
@@ -652,7 +663,7 @@ describe("Distamarkets", () => {
             .to.be.revertedWith("Market not in dispute");
 
             // dispute
-            distamarkets.connect(trader1).disputeMarket(marketId, 0);
+            await distamarkets.connect(trader1).disputeMarket(marketId, 0);
 
             // only oracle can close the market
             await expect(distamarkets.connect(creator).closeMarket(marketId, 1))
