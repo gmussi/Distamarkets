@@ -66,7 +66,7 @@ contract Distamarkets is IERC1363Spender {
 
     // Contract settings (might be updateable later on)
     uint256 _withdrawFeeRatio = 10; // 10% fee
-    uint256 _disputeTime = 86400; // 24 hours
+    uint256 _disputeTime = 600; // 10 minutes
 
     // market id => Market
     mapping(bytes32 => Market) _markets;
